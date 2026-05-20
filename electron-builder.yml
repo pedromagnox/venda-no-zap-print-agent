@@ -69,7 +69,10 @@ win:
     - target: nsis
       arch:
         - x64
-  artifactName: ${productName}-Setup-${version}.${ext}
+  # ASCII clean (sem espaços) pra evitar URL encoding feio em GitHub Releases.
+  # productName "Venda no Zap Print Agent" geraria nome com %20 — preferimos
+  # nome direto pra que URLs de download funcionem clean.
+  artifactName: VendaNoZap-PrintAgent-Setup-${version}.${ext}
   # Quando você assinar:
   #   - Azure Trusted Signing: adicione `azureSignOptions:` aqui
   #   - Certificado tradicional: `certificateFile` + `certificatePassword`

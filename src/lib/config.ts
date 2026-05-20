@@ -38,8 +38,12 @@ export const config = {
   useMock,
   mockPort,
   // Loop de polling — centralizado aqui pra fácil ajuste.
-  pollIntervalMs: envNum('PRINT_AGENT_POLL_MS', 5000),
-  heartbeatIntervalMs: envNum('PRINT_AGENT_HEARTBEAT_MS', 30000)
+  // Default 30s: reduz carga no api Fly em 6x vs valor original (5s) sem
+  // impacto perceptível pro lojista (pedido novo demora até 30s pra
+  // aparecer na fila, ainda dentro do esperado pra impressão automática).
+  // Lojistas com muito volume podem reduzir via env var.
+  pollIntervalMs: envNum('PRINT_AGENT_POLL_MS', 30_000),
+  heartbeatIntervalMs: envNum('PRINT_AGENT_HEARTBEAT_MS', 30_000),
 } as const
 
 export type Config = typeof config
