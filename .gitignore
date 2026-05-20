@@ -1,0 +1,20 @@
+node_modules/
+out/
+release/
+dist/
+*.tsbuildinfo
+
+.env
+.env.local
+
+# Editor / OS / extensions
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+.claude/
+
+# Logs
+*.log
+npm-debug.log*

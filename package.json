@@ -1,0 +1,46 @@
+{
+  "name": "venda-no-zap-print-agent",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Agente de impressão local para pedidos do Venda no Zap em impressoras térmicas.",
+  "author": "Venda no Zap",
+  "main": "out/main/index.js",
+  "scripts": {
+    "icons": "node scripts/generate-tray-icons.mjs",
+    "fake-printer": "node scripts/fake-printer.mjs",
+    "electron:rebuild": "electron-rebuild --force --types prod --which-module better-sqlite3",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "dist": "electron-vite build && electron-builder",
+    "dist:win": "electron-vite build && electron-builder --win"
+  },
+  "dependencies": {
+    "@fontsource/dm-sans": "^5.2.8",
+    "@fontsource/outfit": "^5.2.8",
+    "@thesusheer/electron-printer": "^2.0.4",
+    "async-mutex": "^0.5.0",
+    "better-sqlite3": "^11.10.0",
+    "node-machine-id": "^1.1.12"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.2",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20.14.0",
+    "@types/pngjs": "^6.0.5",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "electron": "^31.3.0",
+    "electron-builder": "^25.0.5",
+    "electron-vite": "^2.3.0",
+    "pngjs": "^7.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0"
+  }
+}

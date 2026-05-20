@@ -1,0 +1,98 @@
+appId: app.vendanozap.printagent
+productName: Venda no Zap Print Agent
+copyright: Copyright (c) 2026 Venda no Zap
+
+# Desliga o rebuild automático que o electron-builder faz por default.
+# Os native deps que usamos já têm prebuilds compatíveis:
+#   - better-sqlite3: rebuildado uma vez via `npm run electron:rebuild`
+#   - @thesusheer/electron-printer: prebuilds win32-x64 no próprio pacote
+# Sem isso, o build tenta compilar de novo (e falha porque o caminho tem espaço
+# + Python não está instalado). Quando trocar major do Electron, rodar
+# `npm run electron:rebuild` antes do `dist:win`.
+npmRebuild: false
+
+directories:
+  buildResources: build
+  output: release/${version}
+
+# `build/icon.png` (>= 256x256) é o ícone master.
+# electron-builder converte automaticamente pra .ico do Windows.
+# Substituir esse arquivo é suficiente — sem precisar tocar nessa config.
+
+files:
+  - "out/**/*"
+  - "package.json"
+  - "!**/.vscode/*"
+  - "!src/*"
+  - "!electron.vite.config.{js,mjs,ts}"
+  - "!{.eslintrc,.gitignore,.editorconfig,.prettierrc,README.md,tsconfig*.json}"
+  - "!{.env,.env.*,.npmrc}"
+  - "!{npm-debug.log,yarn.lock,yarn-error.log,package-lock.json,pnpm-lock.yaml}"
+
+  # ===== Otimização do bundle =====
+  # Source/build-only artefatos que ficaram em node_modules — não são usados
+  # em runtime. Cada exclusão foi conferida contra o entry point do pacote.
+
+  # better-sqlite3: 9.5 MB de source C do SQLite (deps/) — só pra compilar.
+  - "!node_modules/better-sqlite3/deps/**"
+  - "!node_modules/better-sqlite3/src/**"
+  - "!node_modules/better-sqlite3/docs/**"
+  - "!node_modules/better-sqlite3/benchmark/**"
+  - "!node_modules/better-sqlite3/binding.gyp"
+
+  # @thesusheer/electron-printer: .node de outra arch + source/build.
+  - "!node_modules/@thesusheer/electron-printer/lib/electron-printer-win32-ia32.node"
+  - "!node_modules/@thesusheer/electron-printer/src/**"
+  - "!node_modules/@thesusheer/electron-printer/test/**"
+  - "!node_modules/@thesusheer/electron-printer/tools/**"
+  - "!node_modules/@thesusheer/electron-printer/{.github,.vscode}/**"
+  - "!node_modules/@thesusheer/electron-printer/{binding.gyp,Gruntfile.js,tsconfig.json}"
+
+# Native modules precisam ficar FORA do asar pra serem carregáveis pelo
+# require runtime (.node files não funcionam de dentro do asar).
+asarUnpack:
+  - "node_modules/better-sqlite3/build/Release/*.node"
+  - "node_modules/better-sqlite3/lib/**"
+  - "node_modules/@thesusheer/electron-printer/lib/electron-printer-win32-x64.node"
+  - "node_modules/@thesusheer/electron-printer/lib/electron-printer.node"
+
+extraResources:
+  - from: build/icons
+    to: icons
+    filter:
+      - "tray-*.png"
+
+win:
+  icon: build/icon.png
+  executableName: Venda no Zap Print Agent
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-Setup-${version}.${ext}
+  # Quando você assinar:
+  #   - Azure Trusted Signing: adicione `azureSignOptions:` aqui
+  #   - Certificado tradicional: `certificateFile` + `certificatePassword`
+  # Nada mais precisa mudar.
+
+nsis:
+  # Instalador one-click pra apps unsigned: instala em %LocalAppData%\Programs\
+  # sem pedir UAC, sem extrair plugins do NSIS pro Temp (que muitos antivírus
+  # bloqueiam silenciosamente — causa do crash 0xc0000005 em System.dll).
+  # Mais rápido pro lojista também: 1 clique → instalado → app abre.
+  oneClick: true
+  perMachine: false
+  allowElevation: false
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Venda no Zap Print Agent
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  # Pro NSIS, installerIcon/uninstallerIcon precisam ser .ico (não .png).
+  # electron-builder converte build/icon.png pra .ico automaticamente e usa
+  # como default. Pra customizar, gere um .ico real (com múltiplas resoluções)
+  # e aponte aqui.
+
+# Auto-update foi removido — atualização é manual (lojista baixa novo .exe e
+# instala em cima da versão anterior; o oneClick: true do NSIS substitui).
+publish: null

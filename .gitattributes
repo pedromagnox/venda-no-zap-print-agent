@@ -1,0 +1,30 @@
+# Força LF em arquivos de código. Windows commita CRLF por default; sem
+# isso o repo fica com line endings mistos.
+
+*.sh        text eol=lf
+*.mjs       text eol=lf
+*.js        text eol=lf
+*.ts        text eol=lf
+*.tsx       text eol=lf
+*.json      text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.html      text eol=lf
+*.css       text eol=lf
+*.md        text eol=lf
+.gitignore  text eol=lf
+.gitattributes text eol=lf
+
+# Binários — git não converte
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.ico       binary
+*.exe       binary
+*.dll       binary
+*.node      binary
+*.woff      binary
+*.woff2     binary
+*.ttf       binary
+*.otf       binary
+*.svg       text eol=lf

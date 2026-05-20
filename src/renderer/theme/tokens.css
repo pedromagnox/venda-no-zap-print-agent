@@ -1,0 +1,45 @@
+/* Design tokens — espelham a identidade visual do Venda no Zap.
+   Light + dark com tons quentes (marrom em vez de cinza puro). */
+
+:root {
+  /* Marca */
+  --brand-primary: #F47527;
+
+  /* Feedback */
+  --color-success: #43A047;
+  --color-warning: #FFB300;
+  --color-error: #EF4444;
+
+  /* Light theme (default) */
+  --bg: #FCF9F5;
+  --bg-elevated: #FFFFFF;
+  --card: #FFFFFF;
+  --text: #2E2620;
+  --text-muted: #857466;
+  --border: #EBE3DA;
+  --input-bg: #FFFFFF;
+  --input-border: #EBE3DA;
+
+  /* Radius */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  /* Spacing scale (Tailwind base 4) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+
+  /* Shadow */
+  --shadow-sm: 0 1px 2px rgba(46, 38, 32, 0.06);
+
+  /* Tipografia */
+  --font-body: 'DM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Outfit', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', Consolas, monospace;
+}
+
+/* Tema escuro foi removido — o app fica fechado na bandeja, raramente vai
+   ter a janela visível por períodos longos. Mantemos só a paleta clara. */
