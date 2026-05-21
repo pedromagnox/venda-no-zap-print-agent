@@ -70,6 +70,12 @@ function printerContext(config: PrinterConfig): {
   if (config.type === 'network' && config.host) {
     return { printerType: 'network', printerHost: config.host }
   }
+  // v0.4.0: pro spooler do Windows, mandar o nome da impressora (ex: "G250")
+  // como printerHost — útil pra diagnóstico quando o lojista tiver 2 impressoras
+  // ou trocar a atual sem avisar.
+  if (config.type === 'windows_spooler' && config.spoolerName) {
+    return { printerType: 'windows_spooler', printerHost: config.spoolerName }
+  }
   return { printerType: config.type }
 }
 

@@ -124,7 +124,16 @@ if (!gotLock) {
     const tokenManager = new TokenManager(async (refreshToken): Promise<ExchangeResult> => {
       return rawPostJson<ExchangeResult>(
         `${config.apiBaseUrl}/api/print-agent/token/exchange`,
-        { refreshToken, agentInstallId: device.agentInstallId, hostname: device.hostname }
+        {
+          refreshToken,
+          agentInstallId: device.agentInstallId,
+          hostname: device.hostname,
+          // v0.4.0: enviar agentVersion no exchange também (não só no ping/telemetria).
+          // Server preenche print_agent_tokens.agent_version aqui — admin consegue
+          // ver qual versão cada PC está rodando direto na tela de tokens.
+          agentVersion: app.getVersion(),
+          os: process.platform
+        }
       )
     })
     const apiClient = new ApiClient(tokenManager)

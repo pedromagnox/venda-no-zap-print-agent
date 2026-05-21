@@ -50,6 +50,10 @@ export type TelemetryEvent = {
   errorCode?: string
   errorMessage?: string
   durationMs?: number
+  // v0.4.0: identificador do print_queue item (UUID). Permite correlacionar
+  // o evento de telemetria com a row específica da fila + pedido. Vazio nos
+  // testes manuais (botão "Imprimir teste") porque não tem queue item.
+  queueId?: string
   payloadVersion: number
 }
 

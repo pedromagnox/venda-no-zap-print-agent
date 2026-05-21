@@ -204,6 +204,7 @@ export class QueueLoop {
     const printerConfig = this.deps.getPrinterConfig()
     this.deps.telemetry.emit({
       type: 'print_attempt',
+      queueId: id,
       ...this.printerContext(printerConfig)
     })
     try {
@@ -240,6 +241,7 @@ export class QueueLoop {
       this.deps.state.setStatus('green', `Último: pedido #${orderNumber} impresso.`)
       this.deps.telemetry.emit({
         type: 'print_success',
+        queueId: id,
         durationMs,
         ...this.printerContext(printerConfig)
       })
@@ -276,6 +278,7 @@ export class QueueLoop {
       this.deps.state.setStatus('red', `Falha ao imprimir #${orderNumber} (${code}).`)
       this.deps.telemetry.emit({
         type: 'print_failure',
+        queueId: id,
         durationMs: Date.now() - startedAt,
         errorCode: code,
         errorMessage,
@@ -290,6 +293,11 @@ export class QueueLoop {
   } {
     if (config.type === 'network' && config.host) {
       return { printerType: 'network', printerHost: config.host }
+    }
+    // v0.4.0: spooler também envia o nome da impressora como printerHost
+    // pra ficar visível no admin (ex: "G250", "POS58", "EPSON TM-T20").
+    if (config.type === 'windows_spooler' && config.spoolerName) {
+      return { printerType: 'windows_spooler', printerHost: config.spoolerName }
     }
     return { printerType: config.type }
   }
