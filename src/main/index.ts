@@ -1,6 +1,15 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'node:path'
+import dns from 'node:dns'
 import { config } from '@lib/config'
+
+// v0.4.0: força resolução DNS IPv4 antes de IPv6. Sem isso, no Windows o
+// Node tenta AAAA primeiro; se o roteador/ISP tiver glitch momentâneo no
+// IPv6, a tentativa falha com ENOTFOUND e o fallback pra A não acontece
+// rápido — vimos casos de 5min de polling falhando ao seguir. Nosso server
+// (api.vendanozap.app -> vendanozap-api.fly.dev) só tem A record mesmo,
+// IPv6 nunca seria útil aqui.
+dns.setDefaultResultOrder('ipv4first')
 import { ApiClient, rawPostJson } from '@lib/api/client'
 import { PrintAgentEndpoints } from '@lib/api/endpoints'
 import { TokenManager, type ExchangeResult } from '@lib/auth/tokenManager'
