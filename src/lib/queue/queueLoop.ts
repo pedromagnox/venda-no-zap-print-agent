@@ -24,6 +24,11 @@ export class QueueLoop {
   private active = false
   private consecutiveListErrors = 0
   private idleTicks = 0
+  /** Setamos status=red após 3+ falhas consecutivas de polling. Quando a
+   *  comunicação volta, precisamos limpar o badge — senão "Erro crítico"
+   *  fica pendurado indefinidamente mesmo com tudo funcionando.
+   *  Flag ativada no setStatus('red') de polling e checada no próximo sucesso. */
+  private polledRedActive = false
   private readonly mutex = new Mutex()
   private readonly maxBackoffMs: number
   /** ID do item atualmente claimado (entre claim() e ack()/release()).
@@ -66,6 +71,7 @@ export class QueueLoop {
     this.timeoutId = null
     this.consecutiveListErrors = 0
     this.idleTicks = 0
+    this.polledRedActive = false
     this.deps.state.pushLog({
       time: nowLogTime(),
       level: 'info',
@@ -99,6 +105,15 @@ export class QueueLoop {
     try {
       const { items } = await this.deps.endpoints.listQueue()
       this.consecutiveListErrors = 0
+      if (this.polledRedActive) {
+        this.polledRedActive = false
+        this.deps.state.setStatus('green', 'Conectado e pronto pra imprimir.')
+        this.deps.state.pushLog({
+          time: nowLogTime(),
+          level: 'info',
+          message: 'Comunicação com o servidor restabelecida.'
+        })
+      }
       if (items.length > 0) {
         this.idleTicks = 0
         this.deps.state.pushLog({
@@ -136,6 +151,7 @@ export class QueueLoop {
       })
       if (this.consecutiveListErrors >= 3) {
         this.deps.state.setStatus('red', 'Sem comunicação com o servidor.')
+        this.polledRedActive = true
       }
       this.schedule(backoff)
     }
