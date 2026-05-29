@@ -1,5 +1,5 @@
 // Bytes ESC/POS de uma página de teste. Pura ASCII pra evitar dor de cabeça
-// com code pages — bytes reais do backend já vêm com CP1252 aplicado.
+// com code pages — bytes reais do backend já vêm com CP850 aplicado.
 
 const ESC = 0x1b
 const GS = 0x1d
