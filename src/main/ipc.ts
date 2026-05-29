@@ -11,6 +11,7 @@ import {
 } from '@lib/printer'
 import type { DiscoveredSpoolerPrinter } from '@lib/printer'
 import { writeJsonFile } from '@lib/storage/jsonStore'
+import { formatLogTime } from '@shared/logTime'
 import { applyAutoStart } from './autoStart'
 import type { QueueLoop } from '@lib/queue/queueLoop'
 import type { Heartbeat } from '@lib/telemetry/heartbeat'
@@ -60,7 +61,7 @@ function buildErrorHint(printerType: PrinterType, code: string): string {
 }
 
 function nowLogTime(): string {
-  return new Date().toLocaleTimeString('pt-BR')
+  return formatLogTime()
 }
 
 function printerContext(config: PrinterConfig): {

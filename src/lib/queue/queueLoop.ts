@@ -6,6 +6,7 @@ import { sanitize } from '@lib/telemetry/sanitize'
 import type { TelemetryService } from '@lib/telemetry/service'
 import type { AgentState } from '@main/agentState'
 import type { PrinterConfig, PrinterType } from '@shared/types'
+import { formatLogTime } from '@shared/logTime'
 import type { LocalQueue, ClaimedRow } from './localQueue'
 import { normalizePaperWidth } from './paperWidth'
 
@@ -320,5 +321,5 @@ export class QueueLoop {
 }
 
 function nowLogTime(): string {
-  return new Date().toLocaleTimeString('pt-BR')
+  return formatLogTime()
 }

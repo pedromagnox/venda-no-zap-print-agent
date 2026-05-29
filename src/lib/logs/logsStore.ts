@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3'
 import type { LogEntry, LogLevel } from '@shared/types'
+import { formatLogTime } from '@shared/logTime'
 
 // Persistência de logs no SQLite — retenção 48h.
 //
@@ -44,7 +45,7 @@ export class LogsStore {
     }>
     return rows.map((r) => ({
       timeMs: r.timeMs,
-      time: formatTime(r.timeMs),
+      time: formatLogTime(r.timeMs),
       level: r.level as LogLevel,
       message: r.message
     }))
@@ -60,8 +61,4 @@ export class LogsStore {
     const row = this.stmtCount.get() as { c: number }
     return row.c
   }
-}
-
-function formatTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString('pt-BR')
 }

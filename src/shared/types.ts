@@ -25,7 +25,7 @@ export type HistoryEntry = {
 export type LogLevel = 'info' | 'warn' | 'error'
 
 export type LogEntry = {
-  time: string // hh:mm:ss formatado
+  time: string // formatado por formatLogTime() -> "dd/mm hh:mm:ss"
   /** Epoch ms — preenchido automaticamente pelo state.pushLog. Usado pra retenção 48h. */
   timeMs?: number
   level: LogLevel

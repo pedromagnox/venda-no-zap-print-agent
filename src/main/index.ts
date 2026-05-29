@@ -25,6 +25,7 @@ import { Heartbeat } from '@lib/telemetry/heartbeat'
 import { sanitize } from '@lib/telemetry/sanitize'
 import { QueueLoop } from '@lib/queue/queueLoop'
 import type { AgentStatus, AgentSnapshot, Preferences, PrinterConfig } from '@shared/types'
+import { formatLogTime } from '@shared/logTime'
 import { AgentState, makeInitialSnapshot } from './agentState'
 import { registerIpc } from './ipc'
 import { createTray, type TrayController } from './tray'
@@ -215,7 +216,7 @@ if (!gotLock) {
     tokenManager.on('refresh-success', (info: { expiresInSec: number }) => {
       const minutes = Math.round(info.expiresInSec / 60)
       state.pushLog({
-        time: new Date().toLocaleTimeString('pt-BR'),
+        time: formatLogTime(),
         level: 'info',
         message: `Sessão renovada (válida por ${minutes} min).`
       })
@@ -224,7 +225,7 @@ if (!gotLock) {
       // Refresh token foi revogado/expirado no servidor — o agent não tem
       // como se recuperar sozinho. Para tudo e força reauth manual.
       state.pushLog({
-        time: new Date().toLocaleTimeString('pt-BR'),
+        time: formatLogTime(),
         level: 'error',
         message:
           'Token de conexão foi revogado pelo servidor. Gere um novo token no painel da loja e cole no campo de conexão.'
@@ -241,7 +242,7 @@ if (!gotLock) {
     tokenManager.on('refresh-failed', (err: Error) => {
       // Erro de rede/server, não auth — vai retentar no próximo tick do polling.
       state.pushLog({
-        time: new Date().toLocaleTimeString('pt-BR'),
+        time: formatLogTime(),
         level: 'warn',
         message: `Falha ao renovar sessão: ${err.message}`
       })
@@ -277,7 +278,7 @@ if (!gotLock) {
     telemetry.emit({ type: 'agent_started' })
 
     state.pushLog({
-      time: new Date().toLocaleTimeString('pt-BR'),
+      time: formatLogTime(),
       level: 'info',
       message: config.useMock
         ? `Mock backend rodando em ${config.apiBaseUrl} (${mock?.state().queue.length ?? 0} pedidos semeados)`
@@ -285,7 +286,7 @@ if (!gotLock) {
     })
     if (dbRecovered) {
       state.pushLog({
-        time: new Date().toLocaleTimeString('pt-BR'),
+        time: formatLogTime(),
         level: 'warn',
         message:
           'Banco local estava corrompido — recuperação automática feita. Arquivos antigos preservados como .corrupt.<timestamp> em userData (histórico de logs e telemetria pendente foram perdidos).'
@@ -293,14 +294,14 @@ if (!gotLock) {
     }
     if (pruned > 0) {
       state.pushLog({
-        time: new Date().toLocaleTimeString('pt-BR'),
+        time: formatLogTime(),
         level: 'info',
         message: `${pruned} evento(s) de telemetria expirados removidos.`
       })
     }
     if (logsPruned > 0) {
       state.pushLog({
-        time: new Date().toLocaleTimeString('pt-BR'),
+        time: formatLogTime(),
         level: 'info',
         message: `${logsPruned} log(s) com mais de 48h removidos.`
       })
@@ -308,7 +309,7 @@ if (!gotLock) {
     const pendingLocal = localQueue.count()
     if (pendingLocal > 0) {
       state.pushLog({
-        time: new Date().toLocaleTimeString('pt-BR'),
+        time: formatLogTime(),
         level: 'warn',
         message: `${pendingLocal} pedido(s) pendente(s) no banco local — recover ao conectar.`
       })
@@ -316,7 +317,7 @@ if (!gotLock) {
     const pendingTelemetry = telemetryBuffer.count()
     if (pendingTelemetry > 0) {
       state.pushLog({
-        time: new Date().toLocaleTimeString('pt-BR'),
+        time: formatLogTime(),
         level: 'info',
         message: `${pendingTelemetry} evento(s) de telemetria buffered — envio em background.`
       })
@@ -366,7 +367,7 @@ if (!gotLock) {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         state.pushLog({
-          time: new Date().toLocaleTimeString('pt-BR'),
+          time: formatLogTime(),
           level: 'warn',
           message: `Reconexão silenciosa falhou: ${msg}`
         })
