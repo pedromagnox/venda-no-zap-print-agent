@@ -36,7 +36,9 @@ export class NetworkPrinter implements Printer {
     })
   }
 
-  async print(bytes: Buffer): Promise<void> {
+  // docname é ignorado: impressão TCP raw (porta 9100) não tem conceito de
+  // nome de job — quem gerencia fila/nome é o spooler do Windows.
+  async print(bytes: Buffer, _docname?: string): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const sock = new Socket()
       let settled = false

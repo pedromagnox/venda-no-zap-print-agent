@@ -14,6 +14,10 @@ import { getSpoolerModule } from './spoolerModule'
 
 const TIMEOUT_DEFAULT_MS = 15_000
 
+// Fallback do nome do job na fila do Windows quando o caller não passa um.
+// Evita o "node print job" default da lib.
+const DOCNAME_DEFAULT = 'Venda no Zap'
+
 export class WindowsSpoolerPrinter implements Printer {
   constructor(
     private readonly printerName: string,
@@ -40,7 +44,7 @@ export class WindowsSpoolerPrinter implements Printer {
     }
   }
 
-  async print(bytes: Buffer): Promise<void> {
+  async print(bytes: Buffer, docname?: string): Promise<void> {
     const mod = getSpoolerModule()
     await new Promise<void>((resolve, reject) => {
       let settled = false
@@ -60,6 +64,7 @@ export class WindowsSpoolerPrinter implements Printer {
         mod.printDirect({
           data: bytes,
           printer: this.printerName,
+          docname: docname ?? DOCNAME_DEFAULT,
           type: 'RAW',
           success: () => finish(() => resolve()),
           error: (err) =>

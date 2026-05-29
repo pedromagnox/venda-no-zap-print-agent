@@ -20,6 +20,9 @@ export type SpoolerModule = {
   printDirect: (options: {
     data: Buffer | string
     printer: string
+    // Nome do documento mostrado na fila do Windows. Se ausente, a lib usa
+    // o literal "node print job".
+    docname?: string
     type: 'RAW' | 'TEXT' | 'PDF' | 'JPEG' | 'POSTSCRIPT' | 'COMMAND' | 'AUTO'
     success?: (jobId: string) => void
     error?: (err: Error) => void

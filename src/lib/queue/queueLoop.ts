@@ -227,7 +227,7 @@ export class QueueLoop {
       const bytes = Buffer.from(row.bytesB64, 'base64')
       const printer = makePrinter(printerConfig)
       try {
-        await printer.print(bytes)
+        await printer.print(bytes, `Pedido #${orderNumber} - Venda no Zap`)
       } finally {
         await printer.close()
       }

@@ -185,7 +185,7 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
     try {
       const printer = makePrinter(config)
       try {
-        await printer.print(buildTestPage())
+        await printer.print(buildTestPage(), 'Teste - Venda no Zap')
       } finally {
         await printer.close()
       }
