@@ -41,8 +41,35 @@ export class QueueLoop {
    *  Em 5s/tick (default), 120 ticks ≈ 10 min. */
   private static readonly IDLE_LOG_EVERY_N_TICKS = 120
 
+  /** Intervalo de poll atual. Mutável: com WebSocket conectado vira backstop
+   *  longo (o push do WS dá a latência real); sem WS, volta pro valor normal. */
+  private intervalMs: number
+  /** Coalescing do kick(): se um tick já está rodando quando chega um push,
+   *  marca pra rodar mais um logo após — sem disparar ticks sobrepostos. */
+  private ticking = false
+  private kickPending = false
+
   constructor(private readonly deps: QueueLoopDeps) {
     this.maxBackoffMs = deps.maxBackoffMs ?? 60_000
+    this.intervalMs = deps.intervalMs
+  }
+
+  /** Ajusta o intervalo de poll em runtime (ex: WS conectou -> backstop longo). */
+  setIntervalMs(ms: number): void {
+    this.intervalMs = ms
+  }
+
+  /** Dispara um tick imediato (push do WebSocket avisou que tem job). Coalesce
+   *  com um tick em andamento pra não rodar dois ao mesmo tempo. */
+  kick(): void {
+    if (!this.active) return
+    if (this.ticking) {
+      this.kickPending = true
+      return
+    }
+    if (this.timeoutId) clearTimeout(this.timeoutId)
+    this.timeoutId = null
+    this.schedule(0)
   }
 
   isActive(): boolean {
@@ -73,6 +100,8 @@ export class QueueLoop {
     this.consecutiveListErrors = 0
     this.idleTicks = 0
     this.polledRedActive = false
+    this.ticking = false
+    this.kickPending = false
     this.deps.state.pushLog({
       time: nowLogTime(),
       level: 'info',
@@ -103,6 +132,7 @@ export class QueueLoop {
 
   private async tick(): Promise<void> {
     if (!this.active) return
+    this.ticking = true
     try {
       const { items } = await this.deps.endpoints.listQueue()
       this.consecutiveListErrors = 0
@@ -125,7 +155,7 @@ export class QueueLoop {
       } else {
         this.idleTicks++
         if (this.idleTicks > 0 && this.idleTicks % QueueLoop.IDLE_LOG_EVERY_N_TICKS === 0) {
-          const minutes = Math.round((this.idleTicks * this.deps.intervalMs) / 60_000)
+          const minutes = Math.round((this.idleTicks * this.intervalMs) / 60_000)
           this.deps.state.pushLog({
             time: nowLogTime(),
             level: 'info',
@@ -137,12 +167,16 @@ export class QueueLoop {
         if (!this.active) break
         await this.processOne(item.id, item.orderNumber)
       }
-      this.schedule(this.deps.intervalMs)
+      this.ticking = false
+      const nextDelay = this.kickPending ? 0 : this.intervalMs
+      this.kickPending = false
+      this.schedule(nextDelay)
     } catch (err) {
+      this.ticking = false
       this.consecutiveListErrors++
       const backoff = Math.min(
         this.maxBackoffMs,
-        this.deps.intervalMs * 2 ** (this.consecutiveListErrors - 1)
+        this.intervalMs * 2 ** (this.consecutiveListErrors - 1)
       )
       const msg = err instanceof Error ? err.message : String(err)
       this.deps.state.pushLog({

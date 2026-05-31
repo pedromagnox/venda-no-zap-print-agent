@@ -24,6 +24,7 @@ import { TelemetryService } from '@lib/telemetry/service'
 import { Heartbeat } from '@lib/telemetry/heartbeat'
 import { sanitize } from '@lib/telemetry/sanitize'
 import { QueueLoop } from '@lib/queue/queueLoop'
+import { WsClient } from '@lib/queue/wsClient'
 import type { AgentStatus, AgentSnapshot, Preferences, PrinterConfig } from '@shared/types'
 import { formatLogTime } from '@shared/logTime'
 import { AgentState, makeInitialSnapshot } from './agentState'
@@ -38,6 +39,7 @@ let tray: TrayController | null = null
 let mock: MockHandle | null = null
 let queueLoop: QueueLoop | null = null
 let heartbeat: Heartbeat | null = null
+let wsClient: WsClient | null = null
 let pruneTimer: NodeJS.Timeout | null = null
 let isQuitting = false
 
@@ -211,6 +213,21 @@ if (!gotLock) {
       intervalMs: config.pollIntervalMs
     })
 
+    // v1.0.0: WebSocket "campainha". O push de pedido chama kick() (tick
+    // imediato); ao conectar, o poll vira backstop longo; ao cair, volta pro
+    // poll normal até reconectar. claim/print/ack seguem no QueueLoop via HTTP.
+    wsClient = new WsClient({
+      url: config.wsUrl,
+      tokens: tokenManager,
+      state,
+      onJob: () => queueLoop?.kick(),
+      onConnected: () => {
+        queueLoop?.setIntervalMs(config.wsBackstopPollMs)
+        queueLoop?.kick() // catch-up: drena o que entrou enquanto desconectado
+      },
+      onDisconnected: () => queueLoop?.setIntervalMs(config.pollIntervalMs)
+    })
+
     // Reage a eventos do token: refresh ok, refresh recusado (token revogado),
     // ou falha de rede no refresh. Tudo loga + faz a recuperação de estado.
     tokenManager.on('refresh-success', (info: { expiresInSec: number }) => {
@@ -232,6 +249,7 @@ if (!gotLock) {
       })
       queueLoop?.stop()
       heartbeat?.stop()
+      wsClient?.stop()
       void tokenManager.clear()
       state.setConnection(false, null)
       state.setStatus(
@@ -364,6 +382,7 @@ if (!gotLock) {
         state.setStatus('green', 'Conectado e pronto pra imprimir.')
         heartbeat.start()
         await queueLoop.start()
+        wsClient.start()
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         state.pushLog({
@@ -384,6 +403,7 @@ if (!gotLock) {
     const loop = queueLoop
     queueLoop?.stop()
     heartbeat?.stop()
+    wsClient?.stop()
     if (pruneTimer) {
       clearInterval(pruneTimer)
       pruneTimer = null

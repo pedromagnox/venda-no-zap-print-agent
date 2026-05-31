@@ -44,6 +44,15 @@ export const config = {
   // Lojistas com muito volume podem reduzir via env var.
   pollIntervalMs: envNum('PRINT_AGENT_POLL_MS', 30_000),
   heartbeatIntervalMs: envNum('PRINT_AGENT_HEARTBEAT_MS', 30_000),
+  // v1.0.0 WebSocket: push de "tem pedido novo". Mora no WORKER
+  // (vendanozap.app), NÃO no apiBaseUrl (api.vendanozap.app = Fly). Em dev/mock
+  // fica vazio (o mock é só HTTP) -> o agente usa só o polling normal.
+  wsUrl:
+    process.env['PRINT_AGENT_WS_URL'] ??
+    (packaged ? 'wss://vendanozap.app/api/print-agent/ws' : ''),
+  // Com WS conectado, o poll vira só backstop (rede de segurança pra push
+  // perdido). Sem WS, o QueueLoop usa o pollIntervalMs normal.
+  wsBackstopPollMs: envNum('PRINT_AGENT_WS_BACKSTOP_MS', 180_000),
 } as const
 
 export type Config = typeof config
