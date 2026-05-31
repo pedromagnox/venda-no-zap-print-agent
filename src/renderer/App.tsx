@@ -52,6 +52,7 @@ export function App(): JSX.Element {
   const [tokenInput, setTokenInput] = useState('')
   const [isConnecting, setIsConnecting] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
+  const [connectError, setConnectError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -83,8 +84,6 @@ export function App(): JSX.Element {
       </div>
     )
   }
-
-  const [connectError, setConnectError] = useState<string | null>(null)
 
   const handleConnect = async (): Promise<void> => {
     if (!tokenInput.trim() || isConnecting) return
