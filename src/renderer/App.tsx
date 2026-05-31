@@ -144,18 +144,13 @@ export function App(): JSX.Element {
         </div>
       </header>
 
-      <div className="status-bar">
-        <span className={`status-dot status-${snap.status}`} aria-hidden />
-        <span className="status-label">{STATUS_BAR_LABEL[snap.status]}</span>
-        <span className="status-meta">
-          {snap.connection.connected ? snap.connection.storeName : 'não conectado'}
-        </span>
-      </div>
-
       <main className="app-body">
         <ConnectionSection
           connected={snap.connection.connected}
           storeName={snap.connection.storeName}
+          status={snap.status}
+          statusLabel={STATUS_BAR_LABEL[snap.status]}
+          statusMessage={snap.statusMessage}
           token={tokenInput}
           connecting={isConnecting}
           onTokenChange={setTokenInput}

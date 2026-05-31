@@ -1,6 +1,11 @@
+import type { AgentStatus } from '@shared/types'
+
 type ConnectionSectionProps = {
   connected: boolean
   storeName: string | null
+  status: AgentStatus
+  statusLabel: string
+  statusMessage: string
   token: string
   connecting?: boolean
   onTokenChange: (next: string) => void
@@ -11,6 +16,9 @@ type ConnectionSectionProps = {
 export function ConnectionSection({
   connected,
   storeName,
+  status,
+  statusLabel,
+  statusMessage,
   token,
   connecting = false,
   onTokenChange,
@@ -19,14 +27,20 @@ export function ConnectionSection({
 }: ConnectionSectionProps): JSX.Element {
   // Forma compacta quando já conectado — economiza espaço pra dar destaque pra
   // configuração de impressora (que é o que o lojista vai mexer no dia a dia).
+  // O dot e o label refletem o `status` real (green/yellow/red); o
+  // `statusMessage` detalhado vira tooltip do dot pra quem quiser ver.
   if (connected) {
     return (
       <section className="section section-compact">
         <div className="connection-compact">
           <div className="connection-compact-info">
-            <span className="status-dot status-green" aria-hidden />
+            <span
+              className={`status-dot status-${status}`}
+              aria-hidden
+              title={statusMessage}
+            />
             <div>
-              <div className="connection-compact-label">Conectado</div>
+              <div className="connection-compact-label">{statusLabel}</div>
               <div className="connection-compact-store">{storeName ?? 'Loja'}</div>
             </div>
           </div>
