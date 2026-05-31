@@ -116,7 +116,8 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
       })
       const store = tokens.getStore()
       const storeName = store?.name ?? 'Loja conectada'
-      state.setConnection(true, storeName)
+      const storeId = store?.id ?? null
+      state.setConnection(true, storeName, storeId)
       state.setStatus('green', 'Conectado e pronto pra imprimir.')
       state.pushLog({ time: nowLogTime(), level: 'info', message: `Conectado à loja: ${storeName}` })
       heartbeat.start()
@@ -124,7 +125,7 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
       return { ok: true, storeName }
     } catch (err) {
       await tokens.clear()
-      state.setConnection(false, null)
+      state.setConnection(false, null, null)
       state.setStatus('red', 'Falha na conexão — verifique o token.')
       const msg = err instanceof Error ? err.message : String(err)
       state.pushLog({ time: nowLogTime(), level: 'error', message: `Falha ao conectar: ${msg}` })
@@ -136,7 +137,7 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
     queueLoop.stop()
     heartbeat.stop()
     await tokens.clear()
-    state.setConnection(false, null)
+    state.setConnection(false, null, null)
     state.setStatus('yellow', 'Desconectado. Cole um novo token pra reconectar.')
   })
 

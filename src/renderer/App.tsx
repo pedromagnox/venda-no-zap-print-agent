@@ -20,8 +20,8 @@ function buildSupportUrl(snap: AgentSnapshot): string {
   lines.push('Olá, preciso de suporte com o Print Agent.')
   lines.push('')
   lines.push(`Versão: v${snap.version}`)
-  if (snap.connection.storeName) {
-    lines.push(`Loja: ${snap.connection.storeName}`)
+  if (snap.connection.storeId) {
+    lines.push(`id da Loja: ${snap.connection.storeId}`)
   }
   lines.push(`Status: ${snap.statusMessage}`)
   lines.push(`Data: ${new Date().toLocaleString('pt-BR')}`)

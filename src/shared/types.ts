@@ -59,6 +59,7 @@ export type AgentSnapshot = {
   connection: {
     connected: boolean
     storeName: string | null
+    storeId: string | null
   }
   version: string
 }

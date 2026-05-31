@@ -251,7 +251,7 @@ if (!gotLock) {
       heartbeat?.stop()
       wsClient?.stop()
       void tokenManager.clear()
-      state.setConnection(false, null)
+      state.setConnection(false, null, null)
       state.setStatus(
         'red',
         'Sessão expirada — gere um novo token no painel e cole aqui.'
@@ -378,7 +378,7 @@ if (!gotLock) {
           agentVersion: app.getVersion()
         })
         const store = tokenManager.getStore()
-        state.setConnection(true, store?.name ?? 'Loja conectada')
+        state.setConnection(true, store?.name ?? 'Loja conectada', store?.id ?? null)
         state.setStatus('green', 'Conectado e pronto pra imprimir.')
         heartbeat.start()
         await queueLoop.start()

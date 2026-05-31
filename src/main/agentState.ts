@@ -49,14 +49,15 @@ export class AgentState extends EventEmitter {
     })
   }
 
-  setConnection(connected: boolean, storeName: string | null): void {
+  setConnection(connected: boolean, storeName: string | null, storeId: string | null): void {
     if (
       connected === this.snap.connection.connected &&
-      storeName === this.snap.connection.storeName
+      storeName === this.snap.connection.storeName &&
+      storeId === this.snap.connection.storeId
     ) {
       return
     }
-    this.patch({ connection: { connected, storeName } })
+    this.patch({ connection: { connected, storeName, storeId } })
   }
 
   setPrinter(printer: PrinterConfig): void {
@@ -103,7 +104,7 @@ export function makeInitialSnapshot(version: string): AgentSnapshot {
     history: [],
     logs: [],
     preferences: { autoStart: true },
-    connection: { connected: false, storeName: null },
+    connection: { connected: false, storeName: null, storeId: null },
     version
   }
 }

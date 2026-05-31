@@ -20,7 +20,12 @@ export function ConnectScreen({
       <div className="connect-screen-hero">
         <Logo size={56} />
         <h1>Conectar à sua loja</h1>
-        <p>Cole abaixo o token de pareamento gerado no painel Venda no Zap.</p>
+        <p>Cole abaixo o token gerado no Venda no Zap</p>
+        <p className="connect-screen-hint">
+          dica: fica abaixo do botão que você
+          <br />
+          usou para baixar esse aplicativo
+        </p>
       </div>
 
       <div className="connect-screen-card">
