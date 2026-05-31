@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Logo } from './components/Logo'
+import { ConnectScreen } from './components/ConnectScreen'
 import { PrinterSection } from './components/sections/PrinterSection'
 import { HistorySection } from './components/sections/HistorySection'
 import { LogsSection } from './components/sections/LogsSection'
@@ -83,19 +84,48 @@ export function App(): JSX.Element {
     )
   }
 
+  const [connectError, setConnectError] = useState<string | null>(null)
+
   const handleConnect = async (): Promise<void> => {
     if (!tokenInput.trim() || isConnecting) return
     setIsConnecting(true)
+    setConnectError(null)
     try {
       const result = await window.printAgent.connect(tokenInput)
       if (result.ok) {
         setTokenInput('')
       } else {
-        alert(result.error)
+        setConnectError(result.error)
       }
     } finally {
       setIsConnecting(false)
     }
+  }
+
+  // Tela focada quando a sessão é terminal-inválida (sem token salvo,
+  // refresh-rejected ou logout manual). Quedas temporárias de rede NÃO
+  // entram aqui — `connection.connected` só flippa nesses 4 casos.
+  if (!snap.connection.connected) {
+    return (
+      <div className="app">
+        <div className="title-bar">
+          <span className="title-bar-logo">
+            <Logo size={18} />
+          </span>
+          Venda no Zap Print Agent
+        </div>
+        <ConnectScreen
+          token={tokenInput}
+          connecting={isConnecting}
+          errorMessage={connectError}
+          onTokenChange={(v) => {
+            setTokenInput(v)
+            if (connectError) setConnectError(null)
+          }}
+          onConnect={handleConnect}
+        />
+      </div>
+    )
   }
 
   return (
