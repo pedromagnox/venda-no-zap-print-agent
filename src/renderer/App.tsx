@@ -1,12 +1,23 @@
 import { useEffect, useState } from 'react'
 import { Logo } from './components/Logo'
 import { ConnectScreen } from './components/ConnectScreen'
+import { PrinterOnboardingScreen } from './components/PrinterOnboardingScreen'
 import { PrinterSection } from './components/sections/PrinterSection'
 import { HistorySection } from './components/sections/HistorySection'
 import { LogsSection } from './components/sections/LogsSection'
 import { ConnectionSection } from './components/sections/ConnectionSection'
 import { PreferencesSection } from './components/sections/PreferencesSection'
-import type { AgentSnapshot } from '@shared/types'
+import type { AgentSnapshot, PrinterConfig } from '@shared/types'
+
+// "Configurada" = tem alvo selecionado (spooler name ou host de rede). Largura
+// não conta como pendência — sempre tem default 80mm. Fonte única usada tanto
+// pelo gate de onboarding (App) quanto pelo bloqueio do botão Continuar
+// (PrinterOnboardingScreen).
+function isPrinterConfigured(p: PrinterConfig): boolean {
+  if (p.type === 'windows_spooler') return !!(p.spoolerName ?? '').trim()
+  if (p.type === 'network') return !!(p.host ?? '').trim()
+  return false
+}
 
 const SUPPORT_WHATSAPP_NUMBER = '5511921048695'
 
@@ -53,6 +64,15 @@ export function App(): JSX.Element {
   const [isConnecting, setIsConnecting] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
+  // Onboarding da impressora: aparece quando o usuário conecta e ainda não
+  // tem impressora válida. Após clicar "Continuar" essa flag fica true até
+  // a sessão (app) reiniciar — evita prender o user em loop se ele tornar a
+  // impressora inválida depois (raro). A flag reseta automaticamente quando
+  // a conexão cai (refresh-rejected / logout).
+  const [printerOnboardingDone, setPrinterOnboardingDone] = useState(false)
+  useEffect(() => {
+    if (!snap?.connection.connected) setPrinterOnboardingDone(false)
+  }, [snap?.connection.connected])
 
   useEffect(() => {
     let cancelled = false
@@ -101,6 +121,27 @@ export function App(): JSX.Element {
     }
   }
 
+  const handleSetPrinter = async (next: PrinterConfig) => {
+    const r = await window.printAgent.setPrinter(next)
+    if (!r.ok) alert(`Não foi possível salvar a configuração: ${r.error}`)
+  }
+  const handleTestPrint = async () => {
+    if (isTesting) return
+    setIsTesting(true)
+    try {
+      const result = await window.printAgent.testPrint()
+      if (!result.ok) {
+        const lines = [`Erro ao testar impressão: ${result.error}`]
+        if (result.hint) lines.push('', result.hint)
+        alert(lines.join('\n'))
+      } else {
+        alert('Impressão de teste enviada. Confira o papel saindo da impressora.')
+      }
+    } finally {
+      setIsTesting(false)
+    }
+  }
+
   // Tela focada quando a sessão é terminal-inválida (sem token salvo,
   // refresh-rejected ou logout manual). Quedas temporárias de rede NÃO
   // entram aqui — `connection.connected` só flippa nesses 4 casos.
@@ -122,6 +163,29 @@ export function App(): JSX.Element {
             if (connectError) setConnectError(null)
           }}
           onConnect={handleConnect}
+        />
+      </div>
+    )
+  }
+
+  // Onboarding focado da impressora. Após conectar, se ainda não tem
+  // impressora válida (spoolerName/host vazio), bloqueia até configurar e
+  // clicar Continuar. Resetada quando desconecta.
+  if (!printerOnboardingDone && !isPrinterConfigured(snap.printer)) {
+    return (
+      <div className="app">
+        <div className="title-bar">
+          <span className="title-bar-logo">
+            <Logo size={18} />
+          </span>
+          Venda no Zap Print Agent
+        </div>
+        <PrinterOnboardingScreen
+          config={snap.printer}
+          testing={isTesting}
+          onChange={handleSetPrinter}
+          onTestPrint={handleTestPrint}
+          onContinue={() => setPrinterOnboardingDone(true)}
         />
       </div>
     )
