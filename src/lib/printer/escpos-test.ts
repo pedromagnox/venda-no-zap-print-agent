@@ -18,6 +18,40 @@ const CMDS = {
 
 const t = (s: string): Buffer => Buffer.from(s, 'ascii')
 
+// Versão em texto puro pro modo compatibilidade (driver Generic/Text Only).
+// Sem ESC/POS, sem corte automático, sem fonte grande — só ASCII que qualquer
+// driver Text-Only do Windows renderiza.
+export function buildTestPageText(): string {
+  const now = new Date()
+  const stamp = now.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
+  const lines = [
+    '          VENDA NO ZAP',
+    '           Print Agent',
+    '',
+    '   (Modo Compatibilidade ativo)',
+    '--------------------------------',
+    'Teste de impressao',
+    `Data: ${stamp}`,
+    '--------------------------------',
+    '',
+    'Se voce esta lendo isto,',
+    'sua impressora esta conectada!',
+    '',
+    '',
+    '',
+    '',
+    ''
+  ]
+  return lines.join('\r\n') + '\r\n'
+}
+
 export function buildTestPage(): Buffer {
   const now = new Date()
   const stamp = now.toLocaleString('pt-BR', {

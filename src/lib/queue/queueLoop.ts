@@ -1,11 +1,11 @@
 import { Mutex } from 'async-mutex'
 import { randomUUID } from 'node:crypto'
 import type { PrintAgentEndpoints } from '@lib/api/endpoints'
-import { makePrinter, PrinterError, type PrinterErrorCode } from '@lib/printer'
+import { detectPrintMode, makePrinter, PrinterError, type PrinterErrorCode } from '@lib/printer'
 import { sanitize } from '@lib/telemetry/sanitize'
 import type { TelemetryService } from '@lib/telemetry/service'
 import type { AgentState } from '@main/agentState'
-import type { PrinterConfig, PrinterType } from '@shared/types'
+import type { PrinterConfig, PrinterType, PrintMode } from '@shared/types'
 import { formatLogTime } from '@shared/logTime'
 import type { LocalQueue, ClaimedRow } from './localQueue'
 import { normalizePaperWidth } from './paperWidth'
@@ -196,15 +196,29 @@ export class QueueLoop {
     await this.mutex.runExclusive(async () => {
       let claimedNumber = orderNumber
       try {
-        const claim = await this.deps.endpoints.claim(id)
+        // Detecta o modo ANTES do claim — assim o backend já gera o payload
+        // certo (text pra Generic/Text Only, bytes pra driver real). Resultado
+        // também atualiza a UI via state.setPrintMode.
+        const config = this.deps.getPrinterConfig()
+        const detected = await detectPrintMode(config)
+        this.deps.state.setPrintMode(detected.mode, detected.driver)
+        const claimOpts = detected.mode === 'compatibility'
+          ? { mode: 'ascii' as const, paperWidth: config.paperWidth }
+          : undefined
+        const claim = await this.deps.endpoints.claim(id, claimOpts)
         claimedNumber = claim.item.orderNumber
         this.deps.localQueue.save(claim)
         this.inFlightClaimId = id
         try {
+          // Backend devolveu `text` (modo compatibilidade) ou `bytes` (default).
+          // Determinístico pelo discriminator `mode` no payload — fallback pra
+          // bytes em backends antigos (payloadVersion=1, sem `mode`).
+          const isAsciiPayload = claim.payload.mode === 'ascii'
           await this.printAndAck({
             id,
             orderNumber: claimedNumber,
-            bytesB64: claim.payload.bytes,
+            bytesB64: isAsciiPayload ? '' : (claim.payload as { bytes: string }).bytes,
+            text: isAsciiPayload ? (claim.payload as { text: string }).text : null,
             paperWidth: normalizePaperWidth(
               claim.payload.paperWidthMm ?? claim.payload.paperWidth
             ),
@@ -259,10 +273,15 @@ export class QueueLoop {
       ...this.printerContext(printerConfig)
     })
     try {
-      const bytes = Buffer.from(row.bytesB64, 'base64')
+      // row.text presente = modo compatibilidade (spooler type='TEXT').
+      // Senão = caminho default ESC/POS RAW. Spooler.print(string|Buffer)
+      // detecta tipo pelo argumento.
+      const data: Buffer | string = row.text
+        ? row.text
+        : Buffer.from(row.bytesB64, 'base64')
       const printer = makePrinter(printerConfig)
       try {
-        await printer.print(bytes, `Pedido #${orderNumber} - Venda no Zap`)
+        await printer.print(data, `Pedido #${orderNumber} - Venda no Zap`)
       } finally {
         await printer.close()
       }

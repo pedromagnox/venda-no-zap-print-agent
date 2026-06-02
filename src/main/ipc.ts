@@ -6,6 +6,8 @@ import type { DeviceFingerprint } from '@lib/auth/device'
 import {
   makePrinter,
   buildTestPage,
+  buildTestPageText,
+  detectPrintMode,
   PrinterError,
   listSpoolerPrinters
 } from '@lib/printer'
@@ -62,6 +64,32 @@ function buildErrorHint(printerType: PrinterType, code: string): string {
 
 function nowLogTime(): string {
   return formatLogTime()
+}
+
+// Log estruturado da detecção de driver (v1.5.1). Antes a detecção era um
+// black box — se o Get-Printer falhava em silêncio, badge não aparecia e
+// ninguém sabia o porquê. Agora cada tentativa loga reason + driver.
+function logDetectionResult(
+  state: AgentState,
+  d: { mode: 'escpos' | 'compatibility'; driver: string | null; reason: string; error?: string },
+  trigger: string
+): void {
+  if (d.reason === 'detected') {
+    const driverStr = d.driver ?? '(sem nome)'
+    const modeStr = d.mode === 'compatibility' ? 'compatibilidade' : 'normal (ESC/POS)'
+    state.pushLog({
+      time: nowLogTime(),
+      level: d.mode === 'compatibility' ? 'warn' : 'info',
+      message: `Driver detectado [${trigger}]: "${driverStr}" → modo ${modeStr}.`
+    })
+    return
+  }
+  // Casos non-happy: loga com warn pra ficar visível no suporte.
+  state.pushLog({
+    time: nowLogTime(),
+    level: 'warn',
+    message: `Detecção de driver [${trigger}] indeterminada: ${d.reason}${d.error ? ` — ${d.error}` : ''}. Default: ESC/POS.`
+  })
 }
 
 function printerContext(config: PrinterConfig): {
@@ -145,6 +173,13 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
     'agent:setPrinter',
     async (_e, printer: PrinterConfig): Promise<{ ok: boolean; error?: string }> => {
       state.setPrinter(printer)
+      // Re-detecta o driver da nova impressora pra ativar/desativar modo
+      // compatibilidade. Async — UI já vai ter renderizado o printer novo, a
+      // flag printMode atualiza alguns segundos depois quando PS responde.
+      void detectPrintMode(printer).then((d) => {
+        state.setPrintMode(d.mode, d.driver)
+        logDetectionResult(state, d, 'setPrinter')
+      })
       try {
         await writeJsonFile('printer', printer)
         return { ok: true }
@@ -184,10 +219,18 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
     const config = state.get().printer
     const startedAt = Date.now()
     telemetry.emit({ type: 'print_attempt', ...printerContext(config) })
+    // Re-detecta o modo na hora do teste — garante que a flag refletida no
+    // state está fresca e que o teste usa o caminho certo (TEXT vs RAW).
+    const detected = await detectPrintMode(config)
+    state.setPrintMode(detected.mode, detected.driver)
+    logDetectionResult(state, detected, 'testPrint')
     try {
       const printer = makePrinter(config)
       try {
-        await printer.print(buildTestPage(), 'Teste - Venda no Zap')
+        const testData: Buffer | string = detected.mode === 'compatibility'
+          ? buildTestPageText()
+          : buildTestPage()
+        await printer.print(testData, 'Teste - Venda no Zap')
       } finally {
         await printer.close()
       }

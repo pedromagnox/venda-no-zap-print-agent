@@ -143,10 +143,19 @@ function enrichFetchError(err: unknown, url: string): Error {
   const host = safeHost(url)
   const suffix = detail ? ` (${detail} ${host})` : ` (${host})`
   // Evita acumular sufixo se a função for chamada >1x sobre o mesmo erro.
-  if (!err.message.includes('(') || !err.message.endsWith(')')) {
-    err.message = `${err.message}${suffix}`
+  if (err.message.includes('(') && err.message.endsWith(')')) {
+    return err
   }
-  return err
+  // Erros do undici (native fetch do Node 18+) têm `message` como getter-only,
+  // então `err.message = ...` lança TypeError "Cannot set property message of
+  // which has only a getter". Criamos um novo Error preservando a cause e o
+  // stack original. v1.5.0 e anteriores tinham mutação direta — bug visível
+  // no log dos lojistas como "Cannot set property message of which has only
+  // a getter" toda vez que o fetch falhava.
+  const enriched = new Error(`${err.message}${suffix}`)
+  ;(enriched as Error & { cause?: unknown }).cause = (err as Error & { cause?: unknown }).cause
+  enriched.stack = err.stack
+  return enriched
 }
 
 function safeHost(url: string): string {

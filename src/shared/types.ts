@@ -47,12 +47,25 @@ export type SpoolerPrinterInfo = {
 }
 
 
+// Modo de impressão derivado do driver da impressora selecionada.
+// `escpos`: caminho normal — driver real, agent manda bytes ESC/POS RAW.
+// `compatibility`: driver é Generic/Text Only — agent pede ao backend cupom
+// em texto puro ASCII e manda via spooler type='TEXT'. UI mostra badge.
+export type PrintMode = 'escpos' | 'compatibility'
+
 // Snapshot completo do estado exposto ao renderer pelo main via IPC.
 export type AgentSnapshot = {
   status: AgentStatus
   statusMessage: string
   lastActionAt: string | null
   printer: PrinterConfig
+  /** Modo derivado do driver atual. Re-detectado quando o lojista troca a
+   *  impressora ou no boot do agente. Não persistido — sempre derivado. */
+  printMode: PrintMode
+  /** Nome do driver detectado (ex: "Generic / Text Only", "EPSON TM-T20").
+   *  Null quando spooler enrichment falhou ou printer é rede TCP. Usado no
+   *  UI pra explicar por que modo compatibilidade ativou. */
+  printerDriver: string | null
   history: HistoryEntry[]
   logs: LogEntry[]
   preferences: Preferences

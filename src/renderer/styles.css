@@ -696,3 +696,25 @@ button {
   grid-template-columns: 2fr 1fr;
   gap: var(--space-2);
 }
+
+/* v1.5 — Modo de Compatibilidade (driver Generic / Text Only).
+   Avisa o lojista que o cupom vai sair sem QR/negrito/corte automático
+   porque o driver não suporta ESC/POS direto. Cor laranja (warning, não
+   error — funcionar funciona, só sai mais simples). */
+.compat-badge {
+  background: #fff4e5;
+  border: 1px solid #ffb74d;
+  color: #6a3a00;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  margin-bottom: var(--space-3);
+}
+.compat-badge strong { font-weight: 700; }
+.compat-badge-driver {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.72rem;
+  opacity: 0.75;
+}

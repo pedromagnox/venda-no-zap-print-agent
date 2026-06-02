@@ -5,9 +5,11 @@ import { PrinterError, type Printer } from './types'
 
 export { PrinterError } from './types'
 export type { Printer, PrinterErrorCode } from './types'
-export { buildTestPage } from './escpos-test'
-export { listSpoolerPrinters } from './discovery'
+export { buildTestPage, buildTestPageText } from './escpos-test'
+export { listSpoolerPrinters, isTextOnlyDriver } from './discovery'
 export type { DiscoveredSpoolerPrinter } from './discovery'
+export { detectPrintMode } from './detectMode'
+export type { DetectedMode } from './detectMode'
 
 export function makePrinter(config: PrinterConfig): Printer {
   switch (config.type) {

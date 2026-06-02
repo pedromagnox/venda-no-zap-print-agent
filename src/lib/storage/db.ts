@@ -112,6 +112,12 @@ function applySchema(db: Database.Database): void {
       last_error TEXT
     );
 
+    -- v1.5: text_data armazena o cupom ASCII pro modo compatibilidade.
+    -- Migração inline (try/catch porque SQLite não tem ADD COLUMN IF NOT
+    -- EXISTS). Em DBs já com a coluna, lança "duplicate column" e a gente
+    -- engole. Em DBs novos, applySchema só roda o CREATE acima, então o
+    -- ALTER é a única forma de adicionar sem dropar a tabela.
+
     CREATE TABLE IF NOT EXISTS telemetry_buffer (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       payload TEXT NOT NULL,
@@ -132,4 +138,17 @@ function applySchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_logs_time_ms ON logs(time_ms);
   `)
+
+  // Migrações idempotentes — cada ALTER pode lançar "duplicate column" se já
+  // foi aplicada antes; engolimos o erro pra não impedir o boot.
+  try {
+    db.exec(`ALTER TABLE claimed_items ADD COLUMN text_data TEXT`)
+  } catch {
+    /* coluna já existe */
+  }
+  // bytes_b64 era NOT NULL no schema original. No modo compat o item só tem
+  // text_data, então precisamos relaxar essa restrição. SQLite não suporta
+  // ALTER COLUMN — mas como NOT NULL só rejeita NULL explícito no INSERT,
+  // o workaround é gravar string vazia ("") em bytes_b64 quando a row é
+  // text-only (ver LocalQueue.save). Sem migração de esquema.
 }

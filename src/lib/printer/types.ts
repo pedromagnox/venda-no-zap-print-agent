@@ -23,10 +23,15 @@ export class PrinterError extends Error {
 }
 
 export interface Printer {
-  // Envia bytes (ESC/POS já encodados pelo backend, NUNCA reaplicar encoding).
+  // Envia dados pra impressora. Buffer = bytes ESC/POS RAW (já encodados pelo
+  // backend, NUNCA reaplicar encoding). string = texto puro pro driver
+  // renderizar (modo compatibilidade — usado quando o driver é Generic/Text
+  // Only e ESC/POS não funciona). Spooler decide TEXT vs RAW pelo tipo do
+  // argumento. NetworkPrinter rejeita string (TCP raw não tem driver).
+  //
   // docname: rótulo do job exibido na fila de impressão do Windows. Ignorado
   // por drivers que não passam pelo spooler (ex.: rede TCP raw).
-  print(bytes: Buffer, docname?: string): Promise<void>
+  print(data: Buffer | string, docname?: string): Promise<void>
   // Verifica conectividade sem imprimir nada (quando suportado pelo driver).
   test(): Promise<void>
   // Descrição pra logs/telemetria — não inclui dados sensíveis.

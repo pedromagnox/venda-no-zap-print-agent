@@ -44,8 +44,12 @@ export class WindowsSpoolerPrinter implements Printer {
     }
   }
 
-  async print(bytes: Buffer, docname?: string): Promise<void> {
+  async print(data: Buffer | string, docname?: string): Promise<void> {
     const mod = getSpoolerModule()
+    // string = modo compatibilidade (driver Generic/Text Only). Mandamos
+    // TEXT — o driver renderiza com a fonte interna do Windows. Buffer =
+    // bytes ESC/POS RAW direto pra impressora.
+    const printType: 'TEXT' | 'RAW' = typeof data === 'string' ? 'TEXT' : 'RAW'
     await new Promise<void>((resolve, reject) => {
       let settled = false
       const finish = (fn: () => void): void => {
@@ -62,10 +66,10 @@ export class WindowsSpoolerPrinter implements Printer {
 
       try {
         mod.printDirect({
-          data: bytes,
+          data,
           printer: this.printerName,
           docname: docname ?? DOCNAME_DEFAULT,
-          type: 'RAW',
+          type: printType,
           success: () => finish(() => resolve()),
           error: (err) =>
             finish(() => reject(mapSpoolerError(err, this.printerName)))

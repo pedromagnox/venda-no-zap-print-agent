@@ -25,6 +25,7 @@ import { Heartbeat } from '@lib/telemetry/heartbeat'
 import { sanitize } from '@lib/telemetry/sanitize'
 import { QueueLoop } from '@lib/queue/queueLoop'
 import { WsClient } from '@lib/queue/wsClient'
+import { detectPrintMode } from '@lib/printer'
 import type { AgentStatus, AgentSnapshot, Preferences, PrinterConfig } from '@shared/types'
 import { formatLogTime } from '@shared/logTime'
 import { AgentState, makeInitialSnapshot } from './agentState'
@@ -203,6 +204,29 @@ if (!gotLock) {
     // Sincroniza a preferência de auto-start com o registro do Windows
     // (em dev é no-op).
     applyAutoStart(persistedPrefs.autoStart)
+
+    // Detecta o modo de impressão da impressora persistida pra UI já abrir
+    // com badge "Modo Compatibilidade" se for o caso, em vez de só refletir
+    // depois do primeiro claim ou clique em testar. Async — não bloqueia o
+    // boot; em até 10s o PowerShell responde e o state atualiza.
+    void detectPrintMode(persistedPrinter).then((d) => {
+      state.setPrintMode(d.mode, d.driver)
+      if (d.reason === 'detected') {
+        const driverStr = d.driver ?? '(sem nome)'
+        const modeStr = d.mode === 'compatibility' ? 'compatibilidade' : 'normal (ESC/POS)'
+        state.pushLog({
+          time: formatLogTime(),
+          level: d.mode === 'compatibility' ? 'warn' : 'info',
+          message: `Driver detectado [boot]: "${driverStr}" → modo ${modeStr}.`
+        })
+      } else if (d.reason !== 'no-spooler-name' && d.reason !== 'not-spooler') {
+        state.pushLog({
+          time: formatLogTime(),
+          level: 'warn',
+          message: `Detecção de driver [boot] indeterminada: ${d.reason}${d.error ? ` — ${d.error}` : ''}. Default: ESC/POS.`
+        })
+      }
+    })
 
     queueLoop = new QueueLoop({
       endpoints,

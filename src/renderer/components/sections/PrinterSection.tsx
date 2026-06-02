@@ -3,6 +3,7 @@ import type {
   PaperWidth,
   PrinterConfig,
   PrinterType,
+  PrintMode,
   SpoolerPrinterInfo,
   SpoolerStatus
 } from '@shared/types'
@@ -10,6 +11,10 @@ import type {
 type PrinterSectionProps = {
   config: PrinterConfig
   testing?: boolean
+  /** Modo de impressão detectado pelo main (vem do AgentSnapshot). */
+  printMode?: PrintMode
+  /** Nome do driver Windows da impressora atual, quando disponível. */
+  printerDriver?: string | null
   onChange: (next: PrinterConfig) => void
   onTestPrint: () => void
 }
@@ -21,7 +26,14 @@ const TYPES: { value: PrinterType; label: string; pill: 'recommended' | 'advance
 
 const WIDTHS: PaperWidth[] = [58, 80]
 
-export function PrinterSection({ config, testing = false, onChange, onTestPrint }: PrinterSectionProps): JSX.Element {
+export function PrinterSection({
+  config,
+  testing = false,
+  printMode = 'escpos',
+  printerDriver = null,
+  onChange,
+  onTestPrint
+}: PrinterSectionProps): JSX.Element {
   const [spoolerList, setSpoolerList] = useState<SpoolerPrinterInfo[]>([])
   const [spoolerLoading, setSpoolerLoading] = useState(false)
 
@@ -43,6 +55,15 @@ export function PrinterSection({ config, testing = false, onChange, onTestPrint 
       <div className="section-header">
         <span className="section-title">Impressora</span>
       </div>
+
+      {printMode === 'compatibility' && (
+        <div className="compat-badge" role="status">
+          Driver da impressora ausente. <strong>Modo de Compatibilidade</strong> ativado
+          {printerDriver && (
+            <span className="compat-badge-driver"> (driver: {printerDriver})</span>
+          )}
+        </div>
+      )}
 
       <div className="field">
         <label className="label">Tipo de conexão</label>

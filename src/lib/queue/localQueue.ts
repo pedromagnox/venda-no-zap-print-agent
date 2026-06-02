@@ -16,6 +16,10 @@ export type ClaimedRow = {
   id: string
   orderNumber: string
   bytesB64: string
+  /** Cupom em texto puro (modo compatibilidade — driver Generic/Text Only).
+   *  Quando presente, o printAndAck usa text + type='TEXT' no spooler em
+   *  vez de bytes ESC/POS. Mutualmente exclusivo com bytesB64 conteúdo. */
+  text: string | null
   paperWidth: PaperWidth
   copies: number
   claimedAt: number
@@ -28,6 +32,7 @@ type RawRow = {
   id: string
   orderNumber: string
   bytesB64: string
+  text: string | null
   paperWidth: number
   copies: number
   claimedAt: number
@@ -46,14 +51,15 @@ export class LocalQueue {
   constructor(private readonly db: Database.Database) {
     this.stmtInsert = db.prepare(`
       INSERT OR REPLACE INTO claimed_items
-        (id, order_number, bytes_b64, paper_width, copies, claimed_at, lease_expires_at, attempts, last_error)
+        (id, order_number, bytes_b64, text_data, paper_width, copies, claimed_at, lease_expires_at, attempts, last_error)
       VALUES
-        (@id, @orderNumber, @bytesB64, @paperWidth, @copies, @claimedAt, @leaseExpiresAt, 0, NULL)
+        (@id, @orderNumber, @bytesB64, @text, @paperWidth, @copies, @claimedAt, @leaseExpiresAt, 0, NULL)
     `)
     this.stmtDelete = db.prepare(`DELETE FROM claimed_items WHERE id = ?`)
     this.stmtList = db.prepare(`
       SELECT
         id, order_number AS orderNumber, bytes_b64 AS bytesB64,
+        text_data AS text,
         paper_width AS paperWidth, copies, claimed_at AS claimedAt,
         lease_expires_at AS leaseExpiresAt, attempts, last_error AS lastError
       FROM claimed_items
@@ -74,10 +80,14 @@ export class LocalQueue {
     const paperWidthNum = normalizePaperWidth(
       claim.payload.paperWidthMm ?? claim.payload.paperWidth
     )
+    // Payload tem `text` (modo compat) ou `bytes` (default). Salva o que tiver
+    // — o outro campo fica '' / null. printAndAck escolhe qual usar.
+    const isAscii = claim.payload.mode === 'ascii'
     this.stmtInsert.run({
       id: claim.item.id,
       orderNumber: claim.item.orderNumber,
-      bytesB64: claim.payload.bytes,
+      bytesB64: isAscii ? '' : (claim.payload as { bytes: string }).bytes,
+      text: isAscii ? (claim.payload as { text: string }).text : null,
       paperWidth: paperWidthNum,
       copies: claim.payload.copies,
       claimedAt: Date.now(),

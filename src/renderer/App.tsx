@@ -183,6 +183,8 @@ export function App(): JSX.Element {
         <PrinterOnboardingScreen
           config={snap.printer}
           testing={isTesting}
+          printMode={snap.printMode}
+          printerDriver={snap.printerDriver}
           onChange={handleSetPrinter}
           onTestPrint={handleTestPrint}
           onContinue={() => setPrinterOnboardingDone(true)}
@@ -227,6 +229,8 @@ export function App(): JSX.Element {
         <PrinterSection
           config={snap.printer}
           testing={isTesting}
+          printMode={snap.printMode}
+          printerDriver={snap.printerDriver}
           onChange={async (next) => {
             const r = await window.printAgent.setPrinter(next)
             if (!r.ok) alert(`Não foi possível salvar a configuração: ${r.error}`)

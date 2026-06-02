@@ -11,7 +11,11 @@ import { getSpoolerModule } from './spoolerModule'
 // Se PowerShell falhar (timeout, permissão), retornamos a lista crua sem
 // enrichment — best-effort, não bloqueia o app.
 
-const PS_TIMEOUT_MS = 3000
+// v1.5.1: 3s era tight pra PCs lentos / com AV pesado. Get-Printer raramente
+// passa de 1s num PC normal, mas PCs de loja muitas vezes ficam em swap, com
+// Kaspersky/AVG interceptando syscalls. Aumentamos pra 10s — silenciosamente
+// falhar e cair em escpos é pior que esperar 9s a mais no boot uma vez.
+const PS_TIMEOUT_MS = 10_000
 
 const execFileAsync = promisify(execFile)
 
@@ -24,6 +28,29 @@ export type DiscoveredSpoolerPrinter = {
   portName: string | null
   /** LPT/COM detectado num PC moderno → 99% das vezes é setup errado de driver USB. */
   suspiciousPort: boolean
+  /** Driver Windows associado à impressora (ex: "Generic / Text Only",
+   *  "EPSON TM-T20", "Bematech MP-4200 TH"). Null quando o enrichment do
+   *  PowerShell falhou (timeout/permissão). */
+  driverName: string | null
+  /** True quando o driver não suporta ESC/POS direto e o agent deve usar
+   *  modo compatibilidade (texto puro). Detectado via [isTextOnlyDriver]. */
+  isTextOnlyDriver: boolean
+}
+
+// Drivers "burros" que aceitam texto mas não renderizam ESC/POS binário.
+// v1.5.1: regra agressiva — QUALQUER driver com a palavra "Generic" no nome
+// vira modo compat. No contexto do Print Agent (impressora térmica de pedido),
+// se o lojista está usando driver "Generic" é porque o driver real do
+// fabricante não está instalado — ESC/POS RAW vai sair como lixo binário de
+// qualquer forma. Cobre "Generic / Text Only", "Generic Text", "Generic IBM
+// Graphics 9pin", etc. "Text Only" isolado (sem "Generic") também cobrimos.
+// Trade-off conhecido: "Generic PostScript Printer" cairia em compat e perder
+// PS, mas PS num PC de delivery é praticamente inexistente.
+const TEXT_ONLY_DRIVER_PATTERN = /\bgeneric\b|^text\s*only$/i
+
+export function isTextOnlyDriver(driverName: string | null | undefined): boolean {
+  if (!driverName) return false
+  return TEXT_ONLY_DRIVER_PATTERN.test(driverName)
 }
 
 export async function listSpoolerPrinters(): Promise<DiscoveredSpoolerPrinter[]> {
@@ -39,11 +66,14 @@ export async function listSpoolerPrinters(): Promise<DiscoveredSpoolerPrinter[]>
     .map((p) => {
       const detail = enriched.get(p.name)
       const portName = detail?.portName ?? null
+      const driverName = detail?.driverName ?? null
       return {
         ...p,
         status: mapStatus(detail?.statusCode),
         portName,
-        suspiciousPort: isSuspiciousPort(portName)
+        suspiciousPort: isSuspiciousPort(portName),
+        driverName,
+        isTextOnlyDriver: isTextOnlyDriver(driverName)
       }
     })
     .filter((p) => !isVirtualPrinter(p.name, p.portName))
@@ -86,9 +116,9 @@ function isVirtualPrinter(name: string, portName: string | null): boolean {
 }
 
 async function loadWinPrinterDetails(): Promise<
-  Map<string, { statusCode: number; portName: string }>
+  Map<string, { statusCode: number; portName: string; driverName: string }>
 > {
-  const result = new Map<string, { statusCode: number; portName: string }>()
+  const result = new Map<string, { statusCode: number; portName: string; driverName: string }>()
   try {
     const { stdout } = await execFileAsync(
       'powershell.exe',
@@ -96,7 +126,7 @@ async function loadWinPrinterDetails(): Promise<
         '-NoProfile',
         '-NonInteractive',
         '-Command',
-        'Get-Printer | Select-Object Name, PortName, PrinterStatus | ConvertTo-Json -Depth 2 -Compress'
+        'Get-Printer | Select-Object Name, PortName, PrinterStatus, DriverName | ConvertTo-Json -Depth 2 -Compress'
       ],
       { timeout: PS_TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 256 }
     )
@@ -105,11 +135,12 @@ async function loadWinPrinterDetails(): Promise<
     const arr = Array.isArray(parsed) ? parsed : [parsed]
     for (const row of arr) {
       if (row && typeof row === 'object') {
-        const r = row as { Name?: string; PortName?: string; PrinterStatus?: number }
+        const r = row as { Name?: string; PortName?: string; PrinterStatus?: number; DriverName?: string }
         if (typeof r.Name === 'string') {
           result.set(r.Name, {
             statusCode: typeof r.PrinterStatus === 'number' ? r.PrinterStatus : -1,
-            portName: typeof r.PortName === 'string' ? r.PortName : ''
+            portName: typeof r.PortName === 'string' ? r.PortName : '',
+            driverName: typeof r.DriverName === 'string' ? r.DriverName : ''
           })
         }
       }

@@ -10,18 +10,40 @@ export type QueueListResponse = {
   items: QueueListItem[]
 }
 
+// Backend v1.5+ devolve payload em uma das duas formas:
+//   mode='escpos' → bytes (base64 ESC/POS pra impressora térmica real)
+//   mode='ascii'  → text (string pra spooler type='TEXT', modo compatibilidade)
+// Versões antigas do backend não retornam `mode` — caímos no shape `bytes`
+// por default. Mantém retrocompat com servidores rodando payloadVersion=1.
+export type ClaimPayload =
+  | {
+      mode?: 'escpos'
+      bytes: string // base64
+      paperWidth: PaperWidth | '58mm' | '80mm'
+      paperWidthMm?: PaperWidth
+      copies: number
+    }
+  | {
+      mode: 'ascii'
+      text: string
+      paperWidth: PaperWidth | '58mm' | '80mm'
+      paperWidthMm?: PaperWidth
+      copies: number
+    }
+
 export type ClaimResponse = {
   item: { id: string; orderNumber: string }
   leaseExpiresAt: string // ISO
-  payload: {
-    bytes: string // base64
-    // Backend manda paperWidth como "58mm"|"80mm" (string, legacy do PWA) e
-    // paperWidthMm como number. Preferimos paperWidthMm; o tipo string aqui
-    // existe só pra documentar o que vem na wire.
-    paperWidth: PaperWidth | '58mm' | '80mm'
-    paperWidthMm?: PaperWidth
-    copies: number
-  }
+  payload: ClaimPayload
+}
+
+export type ClaimOpts = {
+  /** Quando 'ascii', backend gera cupom em texto puro pra driver Generic/Text
+   *  Only. Senão default 'escpos' (bytes binários). */
+  mode?: 'escpos' | 'ascii'
+  /** Override de largura — útil quando o agent sabe a largura real e o
+   *  pdvSettings da loja aponta pra outro valor. Em mm: 58 ou 80. */
+  paperWidth?: 58 | 80
 }
 
 export type ReleaseRequest = {

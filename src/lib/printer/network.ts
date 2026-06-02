@@ -38,7 +38,19 @@ export class NetworkPrinter implements Printer {
 
   // docname é ignorado: impressão TCP raw (porta 9100) não tem conceito de
   // nome de job — quem gerencia fila/nome é o spooler do Windows.
-  async print(bytes: Buffer, _docname?: string): Promise<void> {
+  //
+  // string (modo compatibilidade) não faz sentido em rede TCP — não há driver
+  // pra renderizar texto. Se o backend mandou text por engano, falhamos com
+  // mensagem clara. Garantia: queueLoop só pede mode=ascii quando o printer é
+  // spooler com driver Text-Only.
+  async print(data: Buffer | string, _docname?: string): Promise<void> {
+    if (typeof data === 'string') {
+      throw new PrinterError(
+        'INVALID_CONFIG',
+        'modo compatibilidade (texto puro) não é suportado em impressora de rede TCP — use impressora pelo Windows'
+      )
+    }
+    const bytes = data
     await new Promise<void>((resolve, reject) => {
       const sock = new Socket()
       let settled = false

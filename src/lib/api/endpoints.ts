@@ -1,5 +1,6 @@
 import type { ApiClient } from './client'
 import type {
+  ClaimOpts,
   ClaimResponse,
   PingRequest,
   QueueListItem,
@@ -34,11 +35,18 @@ export class PrintAgentEndpoints {
    * Normaliza item.orderNumber a partir de item.orderId quando o backend
    * só manda esse campo (o que aconteceu até a v0.1.1). paperWidth/paperWidthMm
    * são normalizados depois pelo queueLoop.
+   *
+   * opts.mode='ascii' ativa o backend pra retornar `payload.text` em vez de
+   * `payload.bytes` (modo compatibilidade, ver shared/types PrintMode).
+   * Backends antigos (payloadVersion=1) ignoram o body e retornam ESC/POS.
    */
-  async claim(id: string): Promise<ClaimResponse> {
+  async claim(id: string, opts?: ClaimOpts): Promise<ClaimResponse> {
+    const body: Record<string, unknown> = {}
+    if (opts?.mode) body.mode = opts.mode
+    if (opts?.paperWidth) body.paperWidth = opts.paperWidth
     const raw = await this.api.postJson<Record<string, unknown>>(
       `/api/print-queue/${encodeURIComponent(id)}/claim`,
-      {}
+      body
     )
     return normalizeClaimResponse(raw, id)
   }
@@ -95,17 +103,18 @@ function normalizeClaimResponse(
   const payloadRaw = (raw.payload ?? {}) as Record<string, unknown>
   const id = strOr(itemRaw.id, fallbackId)
   const orderNumber = strOr(itemRaw.orderNumber, strOr(itemRaw.orderId, id))
+  // mode='ascii' identifica o novo shape com `text`. Backends antigos
+  // (payloadVersion=1) não mandam `mode` e sempre retornam `bytes`.
+  const mode = payloadRaw.mode === 'ascii' ? 'ascii' : 'escpos'
+  const paperWidth = payloadRaw.paperWidth as ClaimResponse['payload']['paperWidth']
+  const paperWidthMm = payloadRaw.paperWidthMm as ClaimResponse['payload']['paperWidthMm']
+  const copies = typeof payloadRaw.copies === 'number' ? payloadRaw.copies : 1
   return {
     item: { id, orderNumber },
     leaseExpiresAt: strOr(raw.leaseExpiresAt, ''),
-    payload: {
-      bytes: strOr(payloadRaw.bytes, ''),
-      // paperWidth/paperWidthMm são repassados crus — queueLoop.normalizePaperWidth
-      // resolve a normalização final.
-      paperWidth: payloadRaw.paperWidth as ClaimResponse['payload']['paperWidth'],
-      paperWidthMm: payloadRaw.paperWidthMm as ClaimResponse['payload']['paperWidthMm'],
-      copies: typeof payloadRaw.copies === 'number' ? payloadRaw.copies : 1
-    }
+    payload: mode === 'ascii'
+      ? { mode: 'ascii', text: strOr(payloadRaw.text, ''), paperWidth, paperWidthMm, copies }
+      : { mode: 'escpos', bytes: strOr(payloadRaw.bytes, ''), paperWidth, paperWidthMm, copies }
   }
 }
 

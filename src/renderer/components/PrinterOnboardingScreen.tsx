@@ -4,6 +4,7 @@ import type {
   PaperWidth,
   PrinterConfig,
   PrinterType,
+  PrintMode,
   SpoolerPrinterInfo,
   SpoolerStatus
 } from '@shared/types'
@@ -11,6 +12,8 @@ import type {
 type Props = {
   config: PrinterConfig
   testing: boolean
+  printMode?: PrintMode
+  printerDriver?: string | null
   onChange: (next: PrinterConfig) => void
   onTestPrint: () => void
   onContinue: () => void
@@ -33,6 +36,8 @@ function configured(c: PrinterConfig): boolean {
 export function PrinterOnboardingScreen({
   config,
   testing,
+  printMode = 'escpos',
+  printerDriver = null,
   onChange,
   onTestPrint,
   onContinue
@@ -64,6 +69,15 @@ export function PrinterOnboardingScreen({
       </div>
 
       <div className="printer-onboarding-card">
+        {printMode === 'compatibility' && (
+          <div className="compat-badge" role="status">
+            Driver da impressora ausente. <strong>Modo de Compatibilidade</strong> ativado
+            {printerDriver && (
+              <span className="compat-badge-driver"> (driver: {printerDriver})</span>
+            )}
+          </div>
+        )}
+
         <div className="field">
           <label className="label">Tipo de conexão</label>
           <div className="radio-group" role="radiogroup">

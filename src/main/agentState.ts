@@ -5,7 +5,8 @@ import type {
   HistoryEntry,
   LogEntry,
   PrinterConfig,
-  Preferences
+  Preferences,
+  PrintMode
 } from '@shared/types'
 
 const MAX_HISTORY = 50
@@ -64,6 +65,11 @@ export class AgentState extends EventEmitter {
     this.patch({ printer })
   }
 
+  setPrintMode(mode: PrintMode, driver: string | null): void {
+    if (mode === this.snap.printMode && driver === this.snap.printerDriver) return
+    this.patch({ printMode: mode, printerDriver: driver })
+  }
+
   setPreferences(prefs: Preferences): void {
     this.patch({ preferences: prefs })
   }
@@ -101,6 +107,8 @@ export function makeInitialSnapshot(version: string): AgentSnapshot {
     // Impressoras"). Rede fica atrás de "Conexão por rede" na UI pra casos
     // de impressora com IP fixo.
     printer: { type: 'windows_spooler', spoolerName: '', paperWidth: 80 },
+    printMode: 'escpos',
+    printerDriver: null,
     history: [],
     logs: [],
     preferences: { autoStart: true },
