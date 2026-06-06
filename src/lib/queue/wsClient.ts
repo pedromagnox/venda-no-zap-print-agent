@@ -68,29 +68,6 @@ export class WsClient {
     }
   }
 
-  /** Força uma reconexão imediata. Usado pelo main no resume de suspend ou
-   *  unlock-screen — quando a rede acabou de voltar do low-power, não dá pra
-   *  esperar o backoff exponencial estourar. */
-  forceReconnect(): void {
-    if (!this.active) return
-    this.reconnectAttempts = 0
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
-    }
-    if (this.ws) {
-      try {
-        this.ws.removeAllListeners()
-        this.ws.terminate()
-      } catch {
-        /* ignore */
-      }
-      this.ws = null
-    }
-    this.clearTimers()
-    void this.connect()
-  }
-
   private clearTimers(): void {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)

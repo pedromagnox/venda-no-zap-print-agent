@@ -281,10 +281,19 @@ if (!gotLock) {
         resumeTimer = null
         if (!state.get().connection.connected) return
         // Restart do loop reseta consecutiveListErrors e o backoff acumulado.
+        // Resetar intervalMs pro polling curto explicitamente — sem WS conectado
+        // pra dar push, polling tem que ser frequente. (Quando o WS reconectar,
+        // onConnected volta o intervalo pro backstop longo.) Sem isso, o
+        // queueLoop herdava o backstop de 180s da conexão WS anterior, e o
+        // próximo tick só rodava 3 min depois — apesar do recovery ter sido OK.
         queueLoop?.stop()
+        queueLoop?.setIntervalMs(config.pollIntervalMs)
         void queueLoop?.start()
-        // Reset do backoff do WS + reconnect imediato.
-        wsClient?.forceReconnect()
+        // stop()+start() em vez de forceReconnect(): o suspend marcou active=false
+        // no wsClient, então forceReconnect() (que tem `if (!active) return`)
+        // viraria no-op. start() promove active=true e dispara connect.
+        wsClient?.stop()
+        wsClient?.start()
       }, POST_RESUME_DELAY_MS)
     }
 
