@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   DetectedCheapPrinter,
   PaperWidth,
@@ -40,6 +40,12 @@ export function PrinterSection({
   const [cheapDetected, setCheapDetected] = useState<DetectedCheapPrinter[]>([])
   const [installingCheap, setInstallingCheap] = useState(false)
   const [installError, setInstallError] = useState<string | null>(null)
+  // Trackeia VID+porta de devices que já tentamos instalar nesta sessão de UI.
+  // Sem isso, uma falha de install (ex: PowerShell elevation negada) faria o
+  // useEffect tentar de novo a cada re-render, virando spam. Auto-trigger
+  // dispara só uma vez por device por sessão; se falhar, o usuário tem o
+  // botão "Tentar novamente" abaixo.
+  const autoAttempted = useRef<Set<string>>(new Set())
 
   const loadSpooler = async (): Promise<void> => {
     setSpoolerLoading(true)
@@ -104,40 +110,53 @@ export function PrinterSection({
     }
   }
 
+  // Auto-instalação silenciosa: assim que detectamos térmica barata sem fila
+  // Windows, instalamos automaticamente sem perguntar nada. Pedro reportou
+  // (jun/2026) que o aviso prévio era ruído desnecessário — o lojista que
+  // comprou essa impressora não precisa decidir nada, só funcionar. O badge
+  // "Modo Compatibilidade" + o log do agente ("Impressora barata configurada
+  // ... cupons em ASCII") já comunicam o estado pós-instalação.
+  // Se falhar (admin negado, driver ausente, porta sumiu), aí sim mostramos
+  // mensagem discreta com botão de tentar de novo.
+  useEffect(() => {
+    if (installingCheap) return
+    const target = cheapToInstall[0]
+    if (!target || !target.portName) return
+    const key = `${target.vid}:${target.portName}`
+    if (autoAttempted.current.has(key)) return
+    autoAttempted.current.add(key)
+    void handleInstallCheap(target)
+    // Dependências intencionalmente mínimas — handleInstallCheap fecha sobre
+    // config/onChange mas a referência muda a cada render. Usar ref pra
+    // controlar idempotência em vez de listar no deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cheapToInstall, installingCheap])
+
   return (
     <section className="section">
       <div className="section-header">
         <span className="section-title">Impressora</span>
       </div>
 
-      {printMode === 'compatibility' && (
-        <div className="compat-badge" role="status">
-          Driver da impressora ausente. <strong>Modo de Compatibilidade</strong> ativado
-          {printerDriver && (
-            <span className="compat-badge-driver"> (driver: {printerDriver})</span>
-          )}
-        </div>
-      )}
-
-      {config.type === 'windows_spooler' && cheapToInstall.length > 0 && (
+      {config.type === 'windows_spooler' && cheapToInstall.length > 0 && installError && (
         <div className="compat-badge" role="status" style={{ marginBottom: 8 }}>
-          <strong>Impressora térmica detectada</strong> (
-          {cheapToInstall[0]!.vendor}) sem driver. Os cupons sairão em texto
-          simples, sem acento e sem corte automático — corte na serrilha do papel.
-          {installError && (
-            <div style={{ color: 'var(--color-error)', marginTop: 6, fontSize: '0.75rem' }}>
-              Erro: {installError}
-            </div>
-          )}
+          Não consegui configurar a impressora barata ({cheapToInstall[0]!.vendor})
+          automaticamente.
+          <div style={{ color: 'var(--color-error)', marginTop: 6, fontSize: '0.75rem' }}>
+            {installError}
+          </div>
           <div style={{ marginTop: 8 }}>
             <button
               type="button"
               className="btn btn-primary"
               style={{ padding: '4px 12px', fontSize: '0.75rem' }}
-              onClick={() => void handleInstallCheap(cheapToInstall[0]!)}
+              onClick={() => {
+                setInstallError(null)
+                void handleInstallCheap(cheapToInstall[0]!)
+              }}
               disabled={installingCheap}
             >
-              {installingCheap ? 'Configurando…' : 'Configurar automaticamente'}
+              {installingCheap ? 'Configurando…' : 'Tentar novamente'}
             </button>
           </div>
         </div>
