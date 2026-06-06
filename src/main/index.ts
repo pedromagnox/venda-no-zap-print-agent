@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, powerMonitor, shell } from 'electron'
 import { join } from 'node:path'
 import dns from 'node:dns'
 import { config } from '@lib/config'
@@ -42,9 +42,14 @@ let queueLoop: QueueLoop | null = null
 let heartbeat: Heartbeat | null = null
 let wsClient: WsClient | null = null
 let pruneTimer: NodeJS.Timeout | null = null
+let resumeTimer: NodeJS.Timeout | null = null
 let isQuitting = false
 
 const PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000
+// v1.7.0: tempo de espera antes de tentar reconectar após resume. Janela
+// observada no campo (Windows 11 + Wi-Fi AX2xx): NIC leva 2-5s pra revalidar
+// DHCP/DNS depois que sai de S0ix. 5s cobre com folga.
+const POST_RESUME_DELAY_MS = 5_000
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -252,6 +257,53 @@ if (!gotLock) {
       onDisconnected: () => queueLoop?.setIntervalMs(config.pollIntervalMs)
     })
 
+    // v1.7.0: Modern Standby do Windows 11 + Wi-Fi Intel AX2xx desliga a NIC
+    // em S0ix mantendo a sessão "ativa". Sem tratamento, o socket WS fica
+    // fantasma (TCP "OPEN" mas nada trafega), o polling falha com ENOTFOUND
+    // por minutos, e o lojista vê pedidos chegando com atraso. Tratamos 3
+    // eventos do powerMonitor:
+    //   - 'suspend': S3/S4 — pausa tudo
+    //   - 'resume':  S3/S4 — espera 5s pra NIC voltar, força reconnect WS,
+    //                reinicia o queue loop com intervalo curto (não no
+    //                backstop longo) pra confirmar saúde rápido
+    //   - 'unlock-screen': cobre Modern Standby + Win+L manual; mesmo
+    //                tratamento do resume, mas mais conservador. Se for só
+    //                Win+L (sem sleep), o restart é no-op em prática.
+    function scheduleRecovery(reason: string): void {
+      if (!state.get().connection.connected) return
+      state.pushLog({
+        time: formatLogTime(),
+        level: 'info',
+        message: `Sistema retomado (${reason}) — reconectando em ${POST_RESUME_DELAY_MS / 1000}s.`
+      })
+      if (resumeTimer) clearTimeout(resumeTimer)
+      resumeTimer = setTimeout(() => {
+        resumeTimer = null
+        if (!state.get().connection.connected) return
+        // Restart do loop reseta consecutiveListErrors e o backoff acumulado.
+        queueLoop?.stop()
+        void queueLoop?.start()
+        // Reset do backoff do WS + reconnect imediato.
+        wsClient?.forceReconnect()
+      }, POST_RESUME_DELAY_MS)
+    }
+
+    powerMonitor.on('suspend', () => {
+      state.pushLog({
+        time: formatLogTime(),
+        level: 'info',
+        message: 'Sistema entrando em suspensão — pausando agente.'
+      })
+      if (resumeTimer) {
+        clearTimeout(resumeTimer)
+        resumeTimer = null
+      }
+      queueLoop?.stop()
+      wsClient?.stop()
+    })
+    powerMonitor.on('resume', () => scheduleRecovery('resume'))
+    powerMonitor.on('unlock-screen', () => scheduleRecovery('unlock-screen'))
+
     // Reage a eventos do token: refresh ok, refresh recusado (token revogado),
     // ou falha de rede no refresh. Tudo loga + faz a recuperação de estado.
     tokenManager.on('refresh-success', (info: { expiresInSec: number }) => {
@@ -431,6 +483,10 @@ if (!gotLock) {
     if (pruneTimer) {
       clearInterval(pruneTimer)
       pruneTimer = null
+    }
+    if (resumeTimer) {
+      clearTimeout(resumeTimer)
+      resumeTimer = null
     }
     // Se tinha um claim em vôo, tenta soltar best-effort (2s max) pro item
     // voltar pra fila do servidor antes do lease expirar.

@@ -23,6 +23,13 @@ export type WsClientDeps = {
 }
 
 const PING_INTERVAL_MS = 30_000
+// v1.7.0: se o pong não chega em 10s após o ping, presumimos que a conexão
+// está "fantasma" — TCP aberto mas a outra ponta não responde. Acontece em
+// Modern Standby do Windows 11 (S0ix) com Wi-Fi Intel AX2xx: a NIC entra em
+// low-power, o TCP socket permanece "OPEN" mas nada trafega; sem isso, o
+// agente ficava acreditando que o WS estava ativo enquanto na verdade os
+// pushes nunca chegavam.
+const PONG_TIMEOUT_MS = 10_000
 const MAX_BACKOFF_MS = 60_000
 
 export class WsClient {
@@ -31,6 +38,7 @@ export class WsClient {
   private reconnectAttempts = 0
   private reconnectTimer: NodeJS.Timeout | null = null
   private pingTimer: NodeJS.Timeout | null = null
+  private pongTimer: NodeJS.Timeout | null = null
 
   constructor(private readonly deps: WsClientDeps) {}
 
@@ -60,6 +68,29 @@ export class WsClient {
     }
   }
 
+  /** Força uma reconexão imediata. Usado pelo main no resume de suspend ou
+   *  unlock-screen — quando a rede acabou de voltar do low-power, não dá pra
+   *  esperar o backoff exponencial estourar. */
+  forceReconnect(): void {
+    if (!this.active) return
+    this.reconnectAttempts = 0
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+    if (this.ws) {
+      try {
+        this.ws.removeAllListeners()
+        this.ws.terminate()
+      } catch {
+        /* ignore */
+      }
+      this.ws = null
+    }
+    this.clearTimers()
+    void this.connect()
+  }
+
   private clearTimers(): void {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
@@ -68,6 +99,10 @@ export class WsClient {
     if (this.pingTimer) {
       clearInterval(this.pingTimer)
       this.pingTimer = null
+    }
+    if (this.pongTimer) {
+      clearTimeout(this.pongTimer)
+      this.pongTimer = null
     }
   }
 
@@ -111,9 +146,22 @@ export class WsClient {
       // 'connected' (hello do DO) e outros: no-op.
     })
 
+    ws.on('pong', () => {
+      // Pong recebido — limpa o timer; conexão está viva.
+      if (this.pongTimer) {
+        clearTimeout(this.pongTimer)
+        this.pongTimer = null
+      }
+    })
+
     ws.on('close', () => {
       this.clearTimers()
       this.ws = null
+      this.deps.state.pushLog({
+        time: formatLogTime(),
+        level: 'warn',
+        message: 'WebSocket desconectado — voltando pro polling até reconectar.'
+      })
       this.deps.onDisconnected()
       if (this.active) this.scheduleReconnect()
     })
@@ -132,10 +180,27 @@ export class WsClient {
     if (this.pingTimer) clearInterval(this.pingTimer)
     // Ping de protocolo (frame), respondido pelo runtime da CF sem acordar o DO
     // hibernado — mantém a conexão viva através de NAT/firewall do lojista.
+    // v1.7.0: também arma um timer de pong; se não chegar em PONG_TIMEOUT_MS,
+    // assumimos conexão "fantasma" e forçamos reconexão.
     this.pingTimer = setInterval(() => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         try {
           this.ws.ping()
+          if (this.pongTimer) clearTimeout(this.pongTimer)
+          this.pongTimer = setTimeout(() => {
+            this.pongTimer = null
+            this.deps.state.pushLog({
+              time: formatLogTime(),
+              level: 'warn',
+              message:
+                'WebSocket não respondeu ao keep-alive — reconectando (provável Modern Standby do Windows).'
+            })
+            try {
+              this.ws?.terminate()
+            } catch {
+              /* ignore */
+            }
+          }, PONG_TIMEOUT_MS)
         } catch {
           /* ignore */
         }
