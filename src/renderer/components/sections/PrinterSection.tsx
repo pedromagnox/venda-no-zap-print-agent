@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type {
+  DetectedCheapPrinter,
   PaperWidth,
   PrinterConfig,
   PrinterType,
@@ -36,6 +37,9 @@ export function PrinterSection({
 }: PrinterSectionProps): JSX.Element {
   const [spoolerList, setSpoolerList] = useState<SpoolerPrinterInfo[]>([])
   const [spoolerLoading, setSpoolerLoading] = useState(false)
+  const [cheapDetected, setCheapDetected] = useState<DetectedCheapPrinter[]>([])
+  const [installingCheap, setInstallingCheap] = useState(false)
+  const [installError, setInstallError] = useState<string | null>(null)
 
   const loadSpooler = async (): Promise<void> => {
     setSpoolerLoading(true)
@@ -46,9 +50,59 @@ export function PrinterSection({
     }
   }
 
+  const loadCheapDetection = async (): Promise<void> => {
+    try {
+      const list = await window.printAgent.detectCheapPrinter()
+      setCheapDetected(list)
+    } catch {
+      setCheapDetected([])
+    }
+  }
+
   useEffect(() => {
-    if (config.type === 'windows_spooler') void loadSpooler()
+    if (config.type === 'windows_spooler') {
+      void loadSpooler()
+      void loadCheapDetection()
+    }
   }, [config.type])
+
+  // Térmicas baratas detectadas + ainda sem fila Windows = candidatas a setup
+  // automático. Filtra também por ter portName válido — sem isso, não dá pra
+  // chamar Add-Printer.
+  const cheapToInstall = cheapDetected.filter(
+    (d) => !d.alreadyInstalled && d.portName !== null
+  )
+
+  const handleInstallCheap = async (target: DetectedCheapPrinter): Promise<void> => {
+    if (!target.portName) return
+    setInstallingCheap(true)
+    setInstallError(null)
+    try {
+      const result = await window.printAgent.installCheapPrinter({
+        printerName: target.suggestedName,
+        portName: target.portName
+      })
+      if (!result.ok) {
+        setInstallError(result.error)
+        return
+      }
+      // Sucesso: recarrega lista, seleciona a nova impressora + 58mm + dispara
+      // re-detect do print mode (driver Generic → ativa compatibilidade).
+      await loadSpooler()
+      onChange({
+        ...config,
+        spoolerName: result.printerName,
+        paperWidth: 58
+      })
+      // Recarrega detecção — a impressora deixa de ser "candidata" porque
+      // alreadyInstalled = true agora.
+      await loadCheapDetection()
+    } catch (err) {
+      setInstallError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setInstallingCheap(false)
+    }
+  }
 
   return (
     <section className="section">
@@ -62,6 +116,30 @@ export function PrinterSection({
           {printerDriver && (
             <span className="compat-badge-driver"> (driver: {printerDriver})</span>
           )}
+        </div>
+      )}
+
+      {config.type === 'windows_spooler' && cheapToInstall.length > 0 && (
+        <div className="compat-badge" role="status" style={{ marginBottom: 8 }}>
+          <strong>Impressora térmica detectada</strong> (
+          {cheapToInstall[0]!.vendor}) sem driver. Os cupons sairão em texto
+          simples, sem acento e sem corte automático — corte na serrilha do papel.
+          {installError && (
+            <div style={{ color: 'var(--color-error)', marginTop: 6, fontSize: '0.75rem' }}>
+              Erro: {installError}
+            </div>
+          )}
+          <div style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ padding: '4px 12px', fontSize: '0.75rem' }}
+              onClick={() => void handleInstallCheap(cheapToInstall[0]!)}
+              disabled={installingCheap}
+            >
+              {installingCheap ? 'Configurando…' : 'Configurar automaticamente'}
+            </button>
+          </div>
         </div>
       )}
 

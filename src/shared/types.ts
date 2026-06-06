@@ -46,6 +46,23 @@ export type SpoolerPrinterInfo = {
   suspiciousPort: boolean
 }
 
+/** Térmica USB barata detectada por VID conhecido (ex: YICHIP). Renderer
+ *  mostra alerta quando há item sem `alreadyInstalled`, oferecendo botão
+ *  pra criar fila Windows Generic / Text Only automaticamente. */
+export type DetectedCheapPrinter = {
+  vid: string
+  pid: string
+  vendor: string
+  deviceName: string
+  portName: string | null
+  alreadyInstalled: boolean
+  suggestedName: string
+}
+
+export type InstallResult =
+  | { ok: true; printerName: string; portName: string }
+  | { ok: false; error: string }
+
 
 // Modo de impressão derivado do driver da impressora selecionada.
 // `escpos`: caminho normal — driver real, agent manda bytes ESC/POS RAW.

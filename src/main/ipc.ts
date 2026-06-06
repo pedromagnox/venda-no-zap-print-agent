@@ -9,9 +9,11 @@ import {
   buildTestPageText,
   detectPrintMode,
   PrinterError,
-  listSpoolerPrinters
+  listSpoolerPrinters,
+  detectCheapUsbPrinters,
+  installCheapPrinter
 } from '@lib/printer'
-import type { DiscoveredSpoolerPrinter } from '@lib/printer'
+import type { DiscoveredSpoolerPrinter, DetectedCheapPrinter, InstallResult } from '@lib/printer'
 import { writeJsonFile } from '@lib/storage/jsonStore'
 import { formatLogTime } from '@shared/logTime'
 import { applyAutoStart } from './autoStart'
@@ -290,4 +292,52 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
       return []
     }
   })
+
+  // Detecta térmicas USB baratas (VID conhecido) ainda sem fila Windows
+  // instalada. Hoje cobre só YICHIP. Resultado vazio é o caso normal — só
+  // tem item quando o lojista plugou uma dessas e o Windows não criou fila
+  // (sem driver compatível).
+  ipcMain.handle('printer:detectCheap', async (): Promise<DetectedCheapPrinter[]> => {
+    try {
+      return await detectCheapUsbPrinters()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      state.pushLog({
+        time: nowLogTime(),
+        level: 'warn',
+        message: `Detecção de impressora barata falhou: ${msg}`
+      })
+      return []
+    }
+  })
+
+  // Cria fila Windows com driver Generic / Text Only apontando pra porta USB.
+  // Após sucesso: força reload da lista do spooler, seleciona a nova impressora
+  // e dispara re-detect do mode pra ativar compatibilidade. UI mostra toast/
+  // alerta e o usuário vê a impressora na lista normal.
+  ipcMain.handle(
+    'printer:installCheap',
+    async (
+      _e,
+      args: { printerName: string; portName: string }
+    ): Promise<InstallResult> => {
+      const result = await installCheapPrinter(args)
+      if (result.ok) {
+        state.pushLog({
+          time: nowLogTime(),
+          level: 'info',
+          message:
+            `Impressora barata configurada: "${result.printerName}" na porta ${result.portName} ` +
+            `(driver Generic / Text Only). Os cupons sairão em ASCII sem acento e sem corte automático.`
+        })
+      } else {
+        state.pushLog({
+          time: nowLogTime(),
+          level: 'error',
+          message: `Falha ao configurar impressora barata: ${result.error}`
+        })
+      }
+      return result
+    }
+  )
 }
