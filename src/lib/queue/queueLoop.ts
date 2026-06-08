@@ -41,22 +41,40 @@ export class QueueLoop {
    *  Em 5s/tick (default), 120 ticks ≈ 10 min. */
   private static readonly IDLE_LOG_EVERY_N_TICKS = 120
 
-  /** Intervalo de poll atual. Mutável: com WebSocket conectado vira backstop
-   *  longo (o push do WS dá a latência real); sem WS, volta pro valor normal. */
-  private intervalMs: number
+  /** Intervalo de poll quando o loop está em modo periódico (WS desconectado).
+   *  Em modo paused (WS conectado), não há tick agendado — só kick(). */
+  private readonly intervalMs: number
   /** Coalescing do kick(): se um tick já está rodando quando chega um push,
    *  marca pra rodar mais um logo após — sem disparar ticks sobrepostos. */
   private ticking = false
   private kickPending = false
+  /** v1.9.0: paused=true quando WS conectado. Não agenda tick periódico, só
+   *  responde a kick(). Permite zero polling redundante enquanto o push está
+   *  saudável; se WS cai, resume() volta o tick normal. */
+  private paused = false
+  /** v1.9.0: flag setada por kickFromReconnect(). Próximo tick loga
+   *  separadamente quando vier com items > 0 (sinal de push perdido pelo DO
+   *  durante a desconexão — métrica que valida se confiar 100% no WS é seguro). */
+  private nextTickIsReconnectCatchup = false
 
   constructor(private readonly deps: QueueLoopDeps) {
     this.maxBackoffMs = deps.maxBackoffMs ?? 60_000
     this.intervalMs = deps.intervalMs
   }
 
-  /** Ajusta o intervalo de poll em runtime (ex: WS conectou -> backstop longo). */
-  setIntervalMs(ms: number): void {
-    this.intervalMs = ms
+  /** WS conectou: cancela tick periódico. Só responde a kick() até resume(). */
+  pause(): void {
+    if (this.paused) return
+    this.paused = true
+    if (this.timeoutId) clearTimeout(this.timeoutId)
+    this.timeoutId = null
+  }
+
+  /** WS caiu: volta a agendar tick a cada intervalMs. Dispara um imediato. */
+  resume(): void {
+    if (!this.paused) return
+    this.paused = false
+    if (this.active && !this.timeoutId && !this.ticking) this.schedule(0)
   }
 
   /** Dispara um tick imediato (push do WebSocket avisou que tem job). Coalesce
@@ -70,6 +88,16 @@ export class QueueLoop {
     if (this.timeoutId) clearTimeout(this.timeoutId)
     this.timeoutId = null
     this.schedule(0)
+  }
+
+  /** Variante de kick() pra catch-up após reconexão do WS. Diferença: marca o
+   *  próximo tick pra log estruturado se vier com items > 0 — sinal de pedido
+   *  perdido durante a desconexão (interessante pra validar a confiabilidade
+   *  do canal WS em produção). */
+  kickFromReconnect(): void {
+    if (!this.active) return
+    this.nextTickIsReconnectCatchup = true
+    this.kick()
   }
 
   isActive(): boolean {
@@ -102,6 +130,8 @@ export class QueueLoop {
     this.polledRedActive = false
     this.ticking = false
     this.kickPending = false
+    this.paused = false
+    this.nextTickIsReconnectCatchup = false
     this.deps.state.pushLog({
       time: nowLogTime(),
       level: 'info',
@@ -133,6 +163,8 @@ export class QueueLoop {
   private async tick(): Promise<void> {
     if (!this.active) return
     this.ticking = true
+    const isReconnectCatchup = this.nextTickIsReconnectCatchup
+    this.nextTickIsReconnectCatchup = false
     try {
       const { items } = await this.deps.endpoints.listQueue()
       this.consecutiveListErrors = 0
@@ -147,12 +179,27 @@ export class QueueLoop {
       }
       if (items.length > 0) {
         this.idleTicks = 0
-        this.deps.state.pushLog({
-          time: nowLogTime(),
-          level: 'info',
-          message: `Fila retornou ${items.length} pedido(s) — processando.`
-        })
-      } else {
+        if (isReconnectCatchup) {
+          // Métrica: items > 0 num catch-up pós-reconnect significa que algum
+          // push do DO se perdeu enquanto o WS estava down. Em operação saudável
+          // essa linha deve ser rara. Se aparecer com frequência em produção,
+          // vale priorizar fila de pendentes server-side no Worker/DO.
+          this.deps.state.pushLog({
+            time: nowLogTime(),
+            level: 'info',
+            message: `Catch-up após reconexão: ${items.length} pedido(s) recuperado(s) — processando.`
+          })
+        } else {
+          this.deps.state.pushLog({
+            time: nowLogTime(),
+            level: 'info',
+            message: `Fila retornou ${items.length} pedido(s) — processando.`
+          })
+        }
+      } else if (!this.paused) {
+        // Idle log só faz sentido em modo periódico. Em paused (WS conectado),
+        // kicks são episódicos e zero items é o esperado quando o push chegou
+        // antes do tick processar.
         this.idleTicks++
         if (this.idleTicks > 0 && this.idleTicks % QueueLoop.IDLE_LOG_EVERY_N_TICKS === 0) {
           const minutes = Math.round((this.idleTicks * this.intervalMs) / 60_000)
@@ -168,9 +215,14 @@ export class QueueLoop {
         await this.processOne(item.id, item.orderNumber)
       }
       this.ticking = false
-      const nextDelay = this.kickPending ? 0 : this.intervalMs
-      this.kickPending = false
-      this.schedule(nextDelay)
+      // Em paused: agenda só se tem kick pendente (push enquanto tick rodava).
+      // Em modo periódico: agenda próximo tick em intervalMs (ou 0 se kicked).
+      if (this.kickPending) {
+        this.kickPending = false
+        this.schedule(0)
+      } else if (!this.paused) {
+        this.schedule(this.intervalMs)
+      }
     } catch (err) {
       this.ticking = false
       this.consecutiveListErrors++
@@ -188,6 +240,9 @@ export class QueueLoop {
         this.deps.state.setStatus('red', 'Sem comunicação com o servidor.')
         this.polledRedActive = true
       }
+      // Mesmo em paused, retry o kick com backoff — push perdido por blip de
+      // rede momentâneo merece pelo menos algumas tentativas. Se for problema
+      // persistente, o WS também vai cair e o resume() volta o polling.
       this.schedule(backoff)
     }
   }

@@ -22,14 +22,19 @@ export type WsClientDeps = {
   onDisconnected: () => void
 }
 
-const PING_INTERVAL_MS = 30_000
-// v1.7.0: se o pong não chega em 10s após o ping, presumimos que a conexão
-// está "fantasma" — TCP aberto mas a outra ponta não responde. Acontece em
-// Modern Standby do Windows 11 (S0ix) com Wi-Fi Intel AX2xx: a NIC entra em
+// v1.9.0: ping/pong apertados de 30s/10s pra 20s/8s. Com o backstop de
+// polling removido, o WS é o ÚNICO mecanismo de detecção de fantasma — o
+// custo de uma janela menor é justificado: 28s de pior caso pra detectar
+// conexão morta vs 40s anteriores. Frame de ping é trivial em throughput
+// no Workers (não acorda o DO hibernado).
+const PING_INTERVAL_MS = 20_000
+// Se o pong não chega em 8s após o ping, presumimos que a conexão está
+// "fantasma" — TCP aberto mas a outra ponta não responde. Acontece em Modern
+// Standby do Windows 11 (S0ix) com Wi-Fi Intel AX2xx: a NIC entra em
 // low-power, o TCP socket permanece "OPEN" mas nada trafega; sem isso, o
 // agente ficava acreditando que o WS estava ativo enquanto na verdade os
 // pushes nunca chegavam.
-const PONG_TIMEOUT_MS = 10_000
+const PONG_TIMEOUT_MS = 8_000
 const MAX_BACKOFF_MS = 60_000
 
 export class WsClient {

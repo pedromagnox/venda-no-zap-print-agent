@@ -243,18 +243,20 @@ if (!gotLock) {
     })
 
     // v1.0.0: WebSocket "campainha". O push de pedido chama kick() (tick
-    // imediato); ao conectar, o poll vira backstop longo; ao cair, volta pro
-    // poll normal até reconectar. claim/print/ack seguem no QueueLoop via HTTP.
+    // imediato). claim/print/ack seguem no QueueLoop via HTTP.
+    // v1.9.0: ao conectar, pause() — zero polling redundante (confiamos 100%
+    // no push + catch-up via kickFromReconnect). Ao cair, resume() volta o
+    // polling periódico até reconectar.
     wsClient = new WsClient({
       url: config.wsUrl,
       tokens: tokenManager,
       state,
       onJob: () => queueLoop?.kick(),
       onConnected: () => {
-        queueLoop?.setIntervalMs(config.wsBackstopPollMs)
-        queueLoop?.kick() // catch-up: drena o que entrou enquanto desconectado
+        queueLoop?.pause()
+        queueLoop?.kickFromReconnect() // catch-up + log de items pendentes
       },
-      onDisconnected: () => queueLoop?.setIntervalMs(config.pollIntervalMs)
+      onDisconnected: () => queueLoop?.resume()
     })
 
     // v1.7.0: Modern Standby do Windows 11 + Wi-Fi Intel AX2xx desliga a NIC
@@ -280,14 +282,12 @@ if (!gotLock) {
       resumeTimer = setTimeout(() => {
         resumeTimer = null
         if (!state.get().connection.connected) return
-        // Restart do loop reseta consecutiveListErrors e o backoff acumulado.
-        // Resetar intervalMs pro polling curto explicitamente — sem WS conectado
-        // pra dar push, polling tem que ser frequente. (Quando o WS reconectar,
-        // onConnected volta o intervalo pro backstop longo.) Sem isso, o
-        // queueLoop herdava o backstop de 180s da conexão WS anterior, e o
-        // próximo tick só rodava 3 min depois — apesar do recovery ter sido OK.
+        // Restart do loop reseta consecutiveListErrors, backoff acumulado e
+        // estado paused — volta pro modo periódico padrão. Quando o WS
+        // reconectar (logo após), onConnected dispara pause() de novo. Sem
+        // isso, o queueLoop herdaria paused=true e ficaria zumbi (sem tick
+        // periódico) caso o WS não reconecte por algum motivo.
         queueLoop?.stop()
-        queueLoop?.setIntervalMs(config.pollIntervalMs)
         void queueLoop?.start()
         // stop()+start() em vez de forceReconnect(): o suspend marcou active=false
         // no wsClient, então forceReconnect() (que tem `if (!active) return`)
