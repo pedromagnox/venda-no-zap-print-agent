@@ -7,19 +7,15 @@ const PS_TIMEOUT_MS = 10_000
 
 export type { DetectedCheapPrinter, InstallResult }
 
-// VIDs USB de chips genéricos chineses usados em térmicas baratas (~R$ 90 no
-// Mercado Livre / Shopee). Esses devices têm 3 problemas:
-//   1) Windows reconhece como USB device mas não cria fila de impressão.
-//   2) ROM da impressora não tem glyphs Latin-1+ — acento e símbolos não saem.
-//   3) Não tem motor de corte físico — comando GS V cai no vazio.
+// VIDs USB de chips genéricos chineses cuja ROM não tem glyphs Latin-1 —
+// acento sai como lixo em qualquer codepage ESC/POS. Pra essas, callers usam
+// `formatReceiptBytes(..., asciiOnly=true)`. KNOWN aqui significa "auto-instalar
+// silenciosamente sem perguntar nada ao lojista" (whitelist segura, confirmada
+// experimentalmente).
 //
-// Workaround: instalar fila Generic / Text Only manualmente (`Add-Printer`),
-// e marcar como modo compatibilidade (driver Generic → backend serve ASCII
-// transliterado via [print-queue.ts mode='ascii']).
-//
-// VID 28E9 = YICHIP Semiconductor. Confirmado experimentalmente (jun/2026):
-// implementa ESC/POS básico (bold, double-size, alignment, QR code) mas
-// IGNORA codepage e CORTE. Mais VIDs cabem aqui conforme mapeamos no campo.
+// VID 28E9 = YICHIP Semiconductor — confirmado jun/2026. ESC/POS básico
+// funciona (bold, double-size, alignment, QR code) mas ignora codepage e
+// comando de corte.
 const KNOWN_VIDS: Record<string, { vendor: string; defaultName: string }> = {
   '28E9': { vendor: 'YICHIP', defaultName: 'Impressora Termica USB' }
 }
@@ -34,8 +30,6 @@ interface PSPayload {
   printers?: PSPrinter[]
 }
 
-/** Normaliza um nome pra comparar entre FriendlyName e Description (espaços
- *  duplos, capitalização variável). */
 function normalize(s: string): string {
   return s.toLowerCase().replace(/\s+/g, ' ').trim()
 }
@@ -44,8 +38,17 @@ function isUsbPort(portName: string | null | undefined): boolean {
   return !!portName && /^USB\d+$/i.test(portName)
 }
 
-// Enumera USB devices + portas + impressoras. Cruza pra retornar térmicas
-// baratas detectadas e se já têm fila Windows.
+// Enumera USB devices + portas + impressoras. Cruza pra retornar TODOS os
+// candidatos a instalação automática:
+//   - VID conhecido (KNOWN_VIDS) → `isKnown: true` → UI auto-instala sem perguntar
+//   - VID não conhecido + porta USB criada pelo Windows + sem fila → `isKnown: false`
+//     → UI mostra diálogo de confirmação (lojista decide se quer Generic/Text Only
+//     ou se vai instalar driver do fabricante)
+//
+// A heurística "porta USB existente no spooler" é o que separa "USB device
+// qualquer" de "impressora térmica genérica". Windows só cria USB00X
+// automaticamente pra devices que declaram USB Printer Class (subclass 7).
+// Mouse/teclado/webcam não viram USB00X.
 export async function detectCheapUsbPrinters(): Promise<DetectedCheapPrinter[]> {
   let parsed: PSPayload
   try {
@@ -88,12 +91,10 @@ export async function detectCheapUsbPrinters(): Promise<DetectedCheapPrinter[]> 
     const vid = m[1]!.toUpperCase()
     const pid = m[2]!.toUpperCase()
     const known = KNOWN_VIDS[vid]
-    if (!known) continue
+    const isKnown = !!known
 
     const friendly = (d.FriendlyName ?? '').trim()
-    // Match porta pela Description (que costuma ser o FriendlyName do device).
     let portName: string | null = portByDescription.get(normalize(friendly)) ?? null
-    // Fallback: prefixo do FriendlyName (ex: "YICHIP" bate com "YICHIP-Printer demo").
     if (!portName && friendly) {
       const prefix = normalize(friendly.split(/[\s-]/)[0] ?? '')
       for (const [desc, name] of portByDescription.entries()) {
@@ -103,17 +104,21 @@ export async function detectCheapUsbPrinters(): Promise<DetectedCheapPrinter[]> 
         }
       }
     }
-    // Aceita só portas USBxxx — descarta WSD / IP / etc.
     if (!isUsbPort(portName)) portName = null
+
+    // Pra VID desconhecido, exigimos porta USB. Sem porta = device USB que
+    // não é impressora (mouse, teclado, etc) — descarta.
+    if (!isKnown && !portName) continue
 
     result.push({
       vid,
       pid,
-      vendor: known.vendor,
+      vendor: known?.vendor ?? 'Desconhecido',
       deviceName: friendly,
       portName,
       alreadyInstalled: portName ? portsWithInstalledPrinter.has(portName) : false,
-      suggestedName: friendly || known.defaultName
+      suggestedName: friendly || known?.defaultName || 'Impressora USB',
+      isKnown
     })
   }
   return result
@@ -134,8 +139,6 @@ export async function installCheapPrinter(args: {
   if (!isUsbPort(portName)) {
     return { ok: false, error: `Porta "${portName}" não parece USB (USB001, USB002...).` }
   }
-  // Sanitização defensiva — printerName/portName entram em comando PowerShell.
-  // Aceitamos só letras/dígitos/underscore/hífen/espaço pra impedir injection.
   if (!/^[A-Za-z0-9 _\-]+$/.test(printerName) || !/^USB\d+$/i.test(portName)) {
     return { ok: false, error: 'Caracteres inválidos no nome ou porta.' }
   }
@@ -159,10 +162,6 @@ export async function installCheapPrinter(args: {
     return { ok: false, error: `Resposta inesperada do PowerShell: ${tag.slice(0, 200)}` }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    // Erros comuns:
-    //  - "Acesso negado" / "elevation required": usuário não é admin
-    //  - "driver not found": Generic / Text Only não está disponível (Windows N)
-    //  - "port not found": porta sumiu (impressora desplugada entre detect e install)
     return { ok: false, error: msg.slice(0, 400) }
   }
 }

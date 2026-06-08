@@ -84,4 +84,8 @@ export type PingRequest = {
   hostname: string
   machineIdHash: string | null
   agentVersion: string
+  /** v1.8.0: inventário sanitizado de hardware (OS, CPU, memória, display,
+   *  rede, impressoras instaladas, USB devices). Backend salva em
+   *  `print_agent_tokens.hardware_info`. Opcional pra retrocompat. */
+  hardwareInfo?: Record<string, unknown>
 }

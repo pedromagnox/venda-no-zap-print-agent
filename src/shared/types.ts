@@ -46,9 +46,14 @@ export type SpoolerPrinterInfo = {
   suspiciousPort: boolean
 }
 
-/** Térmica USB barata detectada por VID conhecido (ex: YICHIP). Renderer
- *  mostra alerta quando há item sem `alreadyInstalled`, oferecendo botão
- *  pra criar fila Windows Generic / Text Only automaticamente. */
+/** Térmica USB candidata a instalação automática como Generic / Text Only.
+ *  Renderer trata 2 categorias:
+ *    - `isKnown: true`  → VID está na whitelist (ex: YICHIP) → auto-instala
+ *                         silenciosamente sem perguntar
+ *    - `isKnown: false` → heurística (USB device + porta USB no spooler + sem
+ *                         fila instalada) → mostra diálogo de confirmação
+ *                         pra lojista decidir entre Generic ou instalar driver
+ *                         do fabricante (Epson/Bematech/Daruma/Elgin) */
 export type DetectedCheapPrinter = {
   vid: string
   pid: string
@@ -57,6 +62,7 @@ export type DetectedCheapPrinter = {
   portName: string | null
   alreadyInstalled: boolean
   suggestedName: string
+  isKnown: boolean
 }
 
 export type InstallResult =
