@@ -32,7 +32,11 @@ export type ClaimPayload =
     }
 
 export type ClaimResponse = {
-  item: { id: string; orderNumber: string }
+  /** v1.10.0: `reason` propaga do `print_queue.reason` do backend
+   *  ('new_order', 'status:confirmado', 'manual_reprint', etc.). Usado pra
+   *  carimbar a telemetria — distinguir 1ª impressão de reimpressão por
+   *  mudança de status sem cruzar logs. Ausente em backends antigos. */
+  item: { id: string; orderNumber: string; reason?: string }
   leaseExpiresAt: string // ISO
   payload: ClaimPayload
 }
@@ -76,6 +80,10 @@ export type TelemetryEvent = {
   // o evento de telemetria com a row específica da fila + pedido. Vazio nos
   // testes manuais (botão "Imprimir teste") porque não tem queue item.
   queueId?: string
+  /** v1.10.0: motivo da entrada na fila ('new_order', 'status:<novo>',
+   *  'manual_reprint', etc.). Ecoa o `print_queue.reason` no backend.
+   *  Permite distinguir 1ª impressão de reimpressão sem cruzar com queueId. */
+  reason?: string
   payloadVersion: number
 }
 

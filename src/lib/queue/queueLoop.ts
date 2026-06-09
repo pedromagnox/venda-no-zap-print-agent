@@ -282,7 +282,7 @@ export class QueueLoop {
             leaseExpiresAt: Date.parse(claim.leaseExpiresAt) || null,
             attempts: 0,
             lastError: null
-          })
+          }, claim.item.reason)
         } finally {
           this.inFlightClaimId = null
         }
@@ -318,13 +318,18 @@ export class QueueLoop {
     await Promise.race([releasePromise, timeoutPromise])
   }
 
-  private async printAndAck(row: ClaimedRow): Promise<void> {
+  /** `reason` opcional vem do `item.reason` do /claim quando disponível
+   *  (v1.10.0+ do backend). No `recoverLocal()` o reason é undefined porque
+   *  a row vem do sqlite local — perdemos granularidade só nesse edge case. */
+  private async printAndAck(row: ClaimedRow, reason?: string): Promise<void> {
     const startedAt = Date.now()
     const { id, orderNumber } = row
     const printerConfig = this.deps.getPrinterConfig()
+    const reasonField = reason ? { reason } : {}
     this.deps.telemetry.emit({
       type: 'print_attempt',
       queueId: id,
+      ...reasonField,
       ...this.printerContext(printerConfig)
     })
     try {
@@ -368,6 +373,7 @@ export class QueueLoop {
         type: 'print_success',
         queueId: id,
         durationMs,
+        ...reasonField,
         ...this.printerContext(printerConfig)
       })
     } catch (err) {
@@ -407,6 +413,7 @@ export class QueueLoop {
         durationMs: Date.now() - startedAt,
         errorCode: code,
         errorMessage,
+        ...reasonField,
         ...this.printerContext(printerConfig)
       })
     }

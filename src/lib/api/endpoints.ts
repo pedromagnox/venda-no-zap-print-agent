@@ -103,6 +103,9 @@ function normalizeClaimResponse(
   const payloadRaw = (raw.payload ?? {}) as Record<string, unknown>
   const id = strOr(itemRaw.id, fallbackId)
   const orderNumber = strOr(itemRaw.orderNumber, strOr(itemRaw.orderId, id))
+  // v1.10.0: backend devolve `item.reason` ('new_order', 'status:<novo>',
+  // 'manual_reprint', etc.). Backends antigos ignoram esse campo.
+  const reason = typeof itemRaw.reason === 'string' ? itemRaw.reason : undefined
   // mode='ascii' identifica o novo shape com `text`. Backends antigos
   // (payloadVersion=1) não mandam `mode` e sempre retornam `bytes`.
   const mode = payloadRaw.mode === 'ascii' ? 'ascii' : 'escpos'
@@ -110,7 +113,7 @@ function normalizeClaimResponse(
   const paperWidthMm = payloadRaw.paperWidthMm as ClaimResponse['payload']['paperWidthMm']
   const copies = typeof payloadRaw.copies === 'number' ? payloadRaw.copies : 1
   return {
-    item: { id, orderNumber },
+    item: { id, orderNumber, ...(reason ? { reason } : {}) },
     leaseExpiresAt: strOr(raw.leaseExpiresAt, ''),
     payload: mode === 'ascii'
       ? { mode: 'ascii', text: strOr(payloadRaw.text, ''), paperWidth, paperWidthMm, copies }
