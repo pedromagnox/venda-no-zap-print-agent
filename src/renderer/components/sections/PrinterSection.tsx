@@ -389,10 +389,7 @@ function formatSpoolerOption(p: SpoolerPrinterInfo): string {
   if (p.isDefault) parts.push('(padrão)')
   const tag = statusTag(p.status)
   if (tag) parts.push(tag)
-  // Porta COM/LPT só é sinal de problema se a impressora não estiver imprimindo.
-  // No caminho spooler o Windows entrega no port sozinho — em status normal o
-  // aviso é falso positivo (ex.: Daruma USB que aparece como COM virtual).
-  else if (p.suspiciousPort && p.status !== 'normal') parts.push('⚠️ porta suspeita')
+  else if (p.suspiciousPort) parts.push('⚠️ porta suspeita')
   return parts.join('  ')
 }
 
@@ -422,10 +419,7 @@ function SpoolerSelectedWarnings({
   if (selected.status === 'offline') problems.push('A impressora está offline.')
   if (selected.status === 'paper-out') problems.push('A impressora está sem papel.')
   if (selected.status === 'warning') problems.push('A impressora reportou um problema.')
-  // Só alerta da porta quando a impressora NÃO está em status normal — aí uma
-  // porta mal mapeada pode ser a causa real. Imprimindo normal, COM/LPT é
-  // irrelevante no spooler e o aviso só assustava o lojista.
-  if (selected.suspiciousPort && selected.status !== 'normal') {
+  if (selected.suspiciousPort) {
     problems.push(
       `A porta configurada é "${selected.portName}" — incomum pra USB. Em Painel de Controle → ` +
         `Dispositivos e Impressoras → propriedades, troque pra USB001 (ou similar).`
