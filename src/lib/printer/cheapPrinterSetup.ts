@@ -49,8 +49,21 @@ function isUsbPort(portName: string | null | undefined): boolean {
 // qualquer" de "impressora térmica genérica". Windows só cria USB00X
 // automaticamente pra devices que declaram USB Printer Class (subclass 7).
 // Mouse/teclado/webcam não viram USB00X.
-export async function detectCheapUsbPrinters(): Promise<DetectedCheapPrinter[]> {
-  let parsed: PSPayload
+// Em máquina sob pressão de memória (POS Celeron em swap), o spawn do
+// powershell.exe às vezes estoura o timeout ou falha no primeiro try, e a
+// detecção volta vazia — indistinguível de "não tem térmica". Como isto roda
+// em background (não bloqueia a UI), retentamos com timeout crescente.
+// SÓ retenta em FALHA (throw / stdout vazio); um JSON válido com lista vazia é
+// o caso normal (máquina sem térmica barata) e retorna na hora, sem penalizar
+// quem não tem o device.
+const PS_DETECT_ATTEMPTS = 3
+const PS_DETECT_BACKOFF_MS = 2_000
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function runDetectProbe(timeoutMs: number): Promise<PSPayload | null> {
   try {
     const script =
       "$d = @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | " +
@@ -62,13 +75,24 @@ export async function detectCheapUsbPrinters(): Promise<DetectedCheapPrinter[]> 
     const { stdout } = await execFileAsync(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-Command', script],
-      { timeout: PS_TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 256 }
+      { timeout: timeoutMs, windowsHide: true, maxBuffer: 1024 * 256 }
     )
-    if (!stdout.trim()) return []
-    parsed = JSON.parse(stdout) as PSPayload
+    if (!stdout.trim()) return null // sem saída = sonda falhou → caller retenta
+    return JSON.parse(stdout) as PSPayload
   } catch {
-    return []
+    return null
   }
+}
+
+export async function detectCheapUsbPrinters(): Promise<DetectedCheapPrinter[]> {
+  let parsed: PSPayload | null = null
+  for (let attempt = 0; attempt < PS_DETECT_ATTEMPTS; attempt++) {
+    if (attempt > 0) await delay(PS_DETECT_BACKOFF_MS * attempt)
+    // timeout crescente: 10s, 15s, 20s
+    parsed = await runDetectProbe(PS_TIMEOUT_MS + attempt * 5_000)
+    if (parsed) break
+  }
+  if (!parsed) return []
 
   const devices = parsed.devices ?? []
   const ports = parsed.printerPorts ?? []
