@@ -63,13 +63,25 @@ export class WsClient {
     this.active = false
     this.clearTimers()
     if (this.ws) {
+      const ws = this.ws
+      this.ws = null
+      // Fechar um socket ainda em CONNECTING faz o `ws` emitir um 'error'
+      // assíncrono ("WebSocket was closed before the connection was
+      // established"). removeAllListeners() tira o handler de 'error' do
+      // connect(), então PRECISAMOS reanexar um swallow antes do close() —
+      // senão esse 'error' sem listener vira uncaughtException e derruba o
+      // agente. Mordeu máquina lenta (Celeron/RAM baixa) onde o connect fica
+      // preso em CONNECTING e um suspend/resume chama stop() no meio do
+      // handshake.
+      ws.removeAllListeners()
+      ws.on('error', () => {
+        /* swallow — socket sendo descartado */
+      })
       try {
-        this.ws.removeAllListeners()
-        this.ws.close(1000)
+        ws.close(1000)
       } catch {
         /* ignore */
       }
-      this.ws = null
     }
   }
 
