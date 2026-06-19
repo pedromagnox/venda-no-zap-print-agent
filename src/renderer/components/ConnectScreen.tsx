@@ -46,7 +46,7 @@ export function ConnectScreen({
               autoCorrect="off"
               autoCapitalize="off"
               style={{ flex: 1, minWidth: 0 }}
-              autoFocus
+              readOnly
             />
             <button
               type="button"
@@ -60,6 +60,16 @@ export function ConnectScreen({
               title="Cola o token da área de transferência"
             >
               Colar
+            </button>
+            <button
+              type="button"
+              className="btn"
+              style={{ whiteSpace: 'nowrap' }}
+              onClick={() => onTokenChange('')}
+              disabled={!token.trim()}
+              title="Limpa o token colado"
+            >
+              Limpar
             </button>
           </div>
         </div>
