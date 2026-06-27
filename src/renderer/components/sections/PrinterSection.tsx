@@ -18,6 +18,8 @@ type PrinterSectionProps = {
   printerDriver?: string | null
   onChange: (next: PrinterConfig) => void
   onTestPrint: () => void
+  /** Abre o wizard de teste guiado de modo de impressão (re-teste). */
+  onRetestMode?: () => void
 }
 
 const TYPES: { value: PrinterType; label: string; pill: 'recommended' | 'advanced' }[] = [
@@ -62,7 +64,8 @@ export function PrinterSection({
   printMode = 'escpos',
   printerDriver = null,
   onChange,
-  onTestPrint
+  onTestPrint,
+  onRetestMode
 }: PrinterSectionProps): JSX.Element {
   const [spoolerList, setSpoolerList] = useState<SpoolerPrinterInfo[]>([])
   const [spoolerLoading, setSpoolerLoading] = useState(false)
@@ -380,6 +383,12 @@ export function PrinterSection({
       >
         {testing ? 'Testando…' : 'Testar impressão'}
       </button>
+
+      {onRetestMode && (
+        <button type="button" className="btn btn-block" onClick={onRetestMode}>
+          Configurar modo de impressão
+        </button>
+      )}
     </section>
   )
 }

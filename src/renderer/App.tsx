@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Logo } from './components/Logo'
 import { ConnectScreen } from './components/ConnectScreen'
 import { PrinterOnboardingScreen } from './components/PrinterOnboardingScreen'
+import { PrintModeWizard } from './components/PrintModeWizard'
 import { PrinterSection } from './components/sections/PrinterSection'
 import { HistorySection } from './components/sections/HistorySection'
 import { LogsSection } from './components/sections/LogsSection'
@@ -70,8 +71,19 @@ export function App(): JSX.Element {
   // impressora inválida depois (raro). A flag reseta automaticamente quando
   // a conexão cai (refresh-rejected / logout).
   const [printerOnboardingDone, setPrinterOnboardingDone] = useState(false)
+  // Wizard de modo de impressão: forceWizard = re-teste manual; wizardClosed =
+  // o usuário concluiu/saiu (evita re-montar antes do snapshot atualizar);
+  // reselecting = forçar a tela de seleção de impressora (escape do wizard).
+  const [forceWizard, setForceWizard] = useState(false)
+  const [wizardClosed, setWizardClosed] = useState(false)
+  const [reselecting, setReselecting] = useState(false)
   useEffect(() => {
-    if (!snap?.connection.connected) setPrinterOnboardingDone(false)
+    if (!snap?.connection.connected) {
+      setPrinterOnboardingDone(false)
+      setForceWizard(false)
+      setWizardClosed(false)
+      setReselecting(false)
+    }
   }, [snap?.connection.connected])
 
   useEffect(() => {
@@ -122,7 +134,15 @@ export function App(): JSX.Element {
   }
 
   const handleSetPrinter = async (next: PrinterConfig) => {
-    const r = await window.printAgent.setPrinter(next)
+    // Trocar o ALVO da impressora invalida o modo testado → limpa o printMode e
+    // reabre o wizard. Mudar só a largura preserva o modo.
+    const targetChanged =
+      next.type !== snap.printer.type ||
+      (next.spoolerName ?? '') !== (snap.printer.spoolerName ?? '') ||
+      (next.host ?? '') !== (snap.printer.host ?? '')
+    const toSave: PrinterConfig = targetChanged ? { ...next, printMode: undefined } : next
+    if (targetChanged) setWizardClosed(false)
+    const r = await window.printAgent.setPrinter(toSave)
     if (!r.ok) alert(`Não foi possível salvar a configuração: ${r.error}`)
   }
   const handleTestPrint = async () => {
@@ -171,7 +191,7 @@ export function App(): JSX.Element {
   // Onboarding focado da impressora. Após conectar, se ainda não tem
   // impressora válida (spoolerName/host vazio), bloqueia até configurar e
   // clicar Continuar. Resetada quando desconecta.
-  if (!printerOnboardingDone && !isPrinterConfigured(snap.printer)) {
+  if (reselecting || (!printerOnboardingDone && !isPrinterConfigured(snap.printer))) {
     return (
       <div className="app">
         <div className="title-bar">
@@ -187,7 +207,41 @@ export function App(): JSX.Element {
           printerDriver={snap.printerDriver}
           onChange={handleSetPrinter}
           onTestPrint={handleTestPrint}
-          onContinue={() => setPrinterOnboardingDone(true)}
+          onContinue={() => {
+            setReselecting(false)
+            setPrinterOnboardingDone(true)
+          }}
+        />
+      </div>
+    )
+  }
+
+  // Wizard de teste guiado de modo de impressão. Aparece quando há impressora
+  // mas ainda sem modo escolhido (ou no re-teste manual). Concluir grava o
+  // printMode na config → o gate fecha sozinho.
+  const showWizard =
+    !wizardClosed && isPrinterConfigured(snap.printer) && (!snap.printer.printMode || forceWizard)
+  if (showWizard) {
+    return (
+      <div className="app">
+        <div className="title-bar">
+          <span className="title-bar-logo">
+            <Logo size={18} />
+          </span>
+          Venda no Zap Print Agent
+        </div>
+        <PrintModeWizard
+          onPrintTest={(mode) => window.printAgent.printTestReceipt(mode)}
+          onSelectMode={(mode) => handleSetPrinter({ ...snap.printer, printMode: mode })}
+          onDone={() => {
+            setForceWizard(false)
+            setWizardClosed(true)
+          }}
+          onSupport={() => window.open(buildSupportUrl(snap), '_blank', 'noopener,noreferrer')}
+          onChangePrinter={() => {
+            setForceWizard(false)
+            setReselecting(true)
+          }}
         />
       </div>
     )
@@ -231,23 +285,11 @@ export function App(): JSX.Element {
           testing={isTesting}
           printMode={snap.printMode}
           printerDriver={snap.printerDriver}
-          onChange={async (next) => {
-            const r = await window.printAgent.setPrinter(next)
-            if (!r.ok) alert(`Não foi possível salvar a configuração: ${r.error}`)
-          }}
-          onTestPrint={async () => {
-            if (isTesting) return
-            setIsTesting(true)
-            try {
-              const result = await window.printAgent.testPrint()
-              if (!result.ok) {
-                const lines = [`Erro ao testar impressão: ${result.error}`]
-                if (result.hint) lines.push('', result.hint)
-                alert(lines.join('\n'))
-              }
-            } finally {
-              setIsTesting(false)
-            }
+          onChange={handleSetPrinter}
+          onTestPrint={handleTestPrint}
+          onRetestMode={() => {
+            setWizardClosed(false)
+            setForceWizard(true)
           }}
         />
 

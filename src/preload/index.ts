@@ -3,6 +3,7 @@ import type {
   AgentSnapshot,
   PrinterConfig,
   Preferences,
+  PrintModeSelection,
   SpoolerPrinterInfo,
   DetectedCheapPrinter,
   InstallResult
@@ -38,6 +39,11 @@ const api = {
 
   testPrint: (): Promise<{ ok: boolean; error?: string; code?: string; hint?: string }> =>
     ipcRenderer.invoke('agent:testPrint'),
+
+  printTestReceipt: (
+    mode: PrintModeSelection
+  ): Promise<{ ok: boolean; error?: string; code?: string; hint?: string }> =>
+    ipcRenderer.invoke('agent:printTestReceipt', mode),
 
   listSpoolerPrinters: (): Promise<SpoolerPrinterInfo[]> =>
     ipcRenderer.invoke('agent:listSpoolerPrinters'),

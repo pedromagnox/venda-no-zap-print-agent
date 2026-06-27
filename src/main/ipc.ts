@@ -21,7 +21,7 @@ import type { QueueLoop } from '@lib/queue/queueLoop'
 import type { Heartbeat } from '@lib/telemetry/heartbeat'
 import type { TelemetryService } from '@lib/telemetry/service'
 import { randomUUID } from 'node:crypto'
-import type { AgentSnapshot, PrinterConfig, Preferences, PrinterType } from '@shared/types'
+import type { AgentSnapshot, PrinterConfig, Preferences, PrinterType, PrintModeSelection } from '@shared/types'
 
 export type IpcDeps = {
   state: AgentState
@@ -278,6 +278,43 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
       return { ok: false, error: msg, code, hint }
     }
   })
+
+  // Wizard de modo de impressão: imprime o cupom-amostra do servidor no `mode`
+  // pedido (escpos/ascii/raster), SEMPRE RAW. Diferente do testPrint() (página
+  // local) — aqui o raster só o servidor desenha, e exercita o caminho real.
+  ipcMain.handle(
+    'agent:printTestReceipt',
+    async (_e, mode: PrintModeSelection): Promise<TestPrintResult> => {
+      const config = state.get().printer
+      const startedAt = Date.now()
+      try {
+        const test = await endpoints.testReceipt(mode, config.paperWidth)
+        const bytes = Buffer.from(test.bytesB64, 'base64')
+        const printer = makePrinter(config)
+        try {
+          await printer.print(bytes, 'Teste de modo - Venda no Zap')
+        } finally {
+          await printer.close()
+        }
+        state.pushLog({
+          time: nowLogTime(),
+          level: 'info',
+          message: `Teste de modo [${mode}] impresso em ${printer.describe()} (${Date.now() - startedAt}ms)`
+        })
+        return { ok: true }
+      } catch (err) {
+        const code = err instanceof PrinterError ? err.code : 'IO_ERROR'
+        const msg = err instanceof Error ? err.message : String(err)
+        const hint = buildErrorHint(config.type, code)
+        state.pushLog({
+          time: nowLogTime(),
+          level: 'warn',
+          message: `Teste de modo [${mode}] falhou (${code}): ${msg}`
+        })
+        return { ok: false, error: msg, code, hint }
+      }
+    }
+  )
 
   ipcMain.handle('agent:listSpoolerPrinters', async (): Promise<DiscoveredSpoolerPrinter[]> => {
     try {
