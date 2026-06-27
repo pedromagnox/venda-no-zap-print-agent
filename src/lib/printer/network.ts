@@ -9,7 +9,11 @@ export class NetworkPrinter implements Printer {
   constructor(
     private readonly host: string,
     private readonly port: number = 9100,
-    private readonly timeoutMs: number = 10_000
+    private readonly timeoutMs: number = 10_000,
+    // Drain de cupom rasterizado (GS v 0, ~50-60KB) numa térmica de rede lenta
+    // é flow-controlled pela velocidade de impressão e passa de 10s. Janela de
+    // envio separada e generosa — ver print().
+    private readonly sendTimeoutMs: number = 45_000
   ) {}
 
   describe(): string {
@@ -54,20 +58,32 @@ export class NetworkPrinter implements Printer {
     await new Promise<void>((resolve, reject) => {
       const sock = new Socket()
       let settled = false
+      let timer: ReturnType<typeof setTimeout> | undefined
       const finish = (fn: () => void): void => {
         if (settled) return
         settled = true
         clearTimeout(timer)
         fn()
       }
-      const timer = setTimeout(() => {
-        finish(() => {
-          sock.destroy()
-          reject(new PrinterError('TIMEOUT', `timeout enviando para ${this.host}:${this.port}`))
-        })
-      }, this.timeoutMs)
+      const armTimeout = (ms: number, msg: string): void => {
+        timer = setTimeout(() => {
+          finish(() => {
+            sock.destroy()
+            reject(new PrinterError('TIMEOUT', msg))
+          })
+        }, ms)
+      }
+
+      // Conexão deve ser rápida (timeoutMs). O envio/drain, porém, é
+      // flow-controlled pela velocidade de impressão: um cupom rasterizado
+      // (GS v 0, ~50-60KB) numa térmica de rede lenta pode passar de 10s. Por
+      // isso a fase de envio ganha uma janela bem maior (sendTimeoutMs) — sem
+      // isso, raster grande dava TIMEOUT no meio e o cupom saía cortado.
+      armTimeout(this.timeoutMs, `timeout conectando em ${this.host}:${this.port}`)
 
       sock.once('connect', () => {
+        clearTimeout(timer)
+        armTimeout(this.sendTimeoutMs, `timeout enviando para ${this.host}:${this.port}`)
         sock.write(bytes, (err) => {
           if (err) {
             finish(() => {
