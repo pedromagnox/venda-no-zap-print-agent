@@ -1,4 +1,6 @@
-import type { PaperWidth } from '@shared/types'
+import type { PaperWidth, PrintModeSelection } from '@shared/types'
+
+export type { PrintModeSelection }
 
 export type QueueListItem = {
   id: string
@@ -8,6 +10,32 @@ export type QueueListItem = {
 
 export type QueueListResponse = {
   items: QueueListItem[]
+}
+
+// claim-lease (batch) — fonte única desde v1.10.4. Cada item já vem com os
+// bytes ESC/POS prontos NO MODO pedido (escpos/ascii/raster), sempre RAW.
+// NÃO traz `leaseExpiresAt` (lease é 2min server-side) nem `orderNumber`
+// amigável (só `orderId`). Ver endpoints.normalizeLeaseItem.
+export type LeaseItem = {
+  id: string
+  orderNumber: string
+  reason?: string
+  bytesB64: string // base64
+  paperWidth?: PaperWidth | '58mm' | '80mm'
+  paperWidthMm?: PaperWidth
+}
+
+export type ClaimLeaseResponse = {
+  items: LeaseItem[]
+}
+
+// POST /api/print-queue/test-receipt — cupom-amostra renderizado no modo pedido
+// (o raster só o servidor desenha). Usado pelo wizard de modo de impressão.
+export type TestReceiptResult = {
+  mode: PrintModeSelection
+  paperWidth?: PaperWidth | '58mm' | '80mm'
+  paperWidthMm?: PaperWidth
+  bytesB64: string // base64
 }
 
 // Backend v1.5+ devolve payload em uma das duas formas:
@@ -73,6 +101,10 @@ export type TelemetryEvent = {
   printerVid?: number
   printerPid?: number
   printerHost?: string
+  /** v1.10.4: modo de impressão usado no claim (escpos/ascii/raster). O
+   *  servidor já registra `mode` no lease_claimed; aqui carimba os eventos de
+   *  print pra correlacionar acerto/erro por modo. */
+  printMode?: PrintModeSelection
   errorCode?: string
   errorMessage?: string
   durationMs?: number

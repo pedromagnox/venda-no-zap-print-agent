@@ -95,6 +95,22 @@ export class LocalQueue {
     })
   }
 
+  /** Persiste um item já claimado pelo claim-lease (v1.10.4) — o payload já
+   *  vem pronto, sem o shape ClaimResponse do /claim por-item. Sempre bytes
+   *  (text=null): claim-lease entrega os 3 modos como bytes RAW. */
+  saveRow(row: ClaimedRow): void {
+    this.stmtInsert.run({
+      id: row.id,
+      orderNumber: row.orderNumber,
+      bytesB64: row.bytesB64,
+      text: row.text,
+      paperWidth: row.paperWidth,
+      copies: row.copies,
+      claimedAt: row.claimedAt,
+      leaseExpiresAt: row.leaseExpiresAt
+    })
+  }
+
   remove(id: string): void {
     this.stmtDelete.run(id)
   }

@@ -28,6 +28,7 @@ export type EmitInput = {
   errorMessage?: string
   durationMs?: number
   queueId?: string
+  printMode?: TelemetryEvent['printMode']
 }
 
 export class TelemetryService {
@@ -58,6 +59,7 @@ export class TelemetryService {
     if (input.errorMessage !== undefined) event.errorMessage = sanitize(input.errorMessage).slice(0, 200)
     if (input.durationMs !== undefined) event.durationMs = Math.max(0, Math.round(input.durationMs))
     if (input.queueId !== undefined) event.queueId = input.queueId
+    if (input.printMode !== undefined) event.printMode = input.printMode
     return event
   }
 

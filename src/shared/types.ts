@@ -7,12 +7,22 @@ export type PrinterType = 'network' | 'windows_spooler'
 
 export type PaperWidth = 58 | 80
 
+// Modo de impressão ESCOLHIDO (persistido) — o que o agente manda no
+// claim-lease e o servidor usa pra montar os bytes. Definido pelo wizard de
+// teste guiado. Distinto do `PrintMode` derivado (badge da UI) lá embaixo.
+//   escpos = Texto (ESC/POS CP850) | ascii = Simples (transliterado) | raster = Imagem (GS v 0)
+export type PrintModeSelection = 'escpos' | 'ascii' | 'raster'
+
 export type PrinterConfig = {
   type: PrinterType
   host?: string
   port?: number
   spoolerName?: string
   paperWidth: PaperWidth
+  /** Modo escolhido no wizard de teste guiado. Mandado em todo claim-lease.
+   *  Ausente = sem wizard ainda → o queueLoop deriva ('ascii' p/ Text-Only,
+   *  senão 'escpos'). 'raster' só entra por escolha explícita do wizard. */
+  printMode?: PrintModeSelection
 }
 
 export type HistoryEntry = {

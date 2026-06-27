@@ -1,11 +1,12 @@
 import { Mutex } from 'async-mutex'
 import { randomUUID } from 'node:crypto'
 import type { PrintAgentEndpoints } from '@lib/api/endpoints'
+import type { LeaseItem } from '@lib/api/types'
 import { detectPrintMode, makePrinter, PrinterError, type PrinterErrorCode } from '@lib/printer'
 import { sanitize } from '@lib/telemetry/sanitize'
 import type { TelemetryService } from '@lib/telemetry/service'
 import type { AgentState } from '@main/agentState'
-import type { PrinterConfig, PrinterType, PrintMode } from '@shared/types'
+import type { PrinterConfig, PrinterType, PrintMode, PrintModeSelection } from '@shared/types'
 import { formatLogTime } from '@shared/logTime'
 import type { LocalQueue, ClaimedRow } from './localQueue'
 import { normalizePaperWidth } from './paperWidth'
@@ -56,6 +57,14 @@ export class QueueLoop {
    *  separadamente quando vier com items > 0 (sinal de push perdido pelo DO
    *  durante a desconexão — métrica que valida se confiar 100% no WS é seguro). */
   private nextTickIsReconnectCatchup = false
+
+  /** v1.10.4: quantos itens o claim-lease reserva por tick. */
+  private static readonly CLAIM_MAX = 5
+  /** Lease do claim-lease é 2min server-side. Valor só informativo no
+   *  localQueue — o before-quit usa inFlightClaimId, não esse campo. */
+  private static readonly LEASE_MS = 120_000
+  /** Último modo logado — evita repetir "Modo de impressão: X" a cada tick. */
+  private lastLoggedMode: PrintModeSelection | null = null
 
   constructor(private readonly deps: QueueLoopDeps) {
     this.maxBackoffMs = deps.maxBackoffMs ?? 60_000
@@ -166,7 +175,9 @@ export class QueueLoop {
     const isReconnectCatchup = this.nextTickIsReconnectCatchup
     this.nextTickIsReconnectCatchup = false
     try {
-      const { items } = await this.deps.endpoints.listQueue()
+      const config = this.deps.getPrinterConfig()
+      const mode = await this.resolvePrintMode(config)
+      const { items } = await this.deps.endpoints.claimLease(QueueLoop.CLAIM_MAX, mode)
       this.consecutiveListErrors = 0
       if (this.polledRedActive) {
         this.polledRedActive = false
@@ -179,6 +190,7 @@ export class QueueLoop {
       }
       if (items.length > 0) {
         this.idleTicks = 0
+        this.logPrintMode(mode)
         if (isReconnectCatchup) {
           // Métrica: items > 0 num catch-up pós-reconnect significa que algum
           // push do DO se perdeu enquanto o WS estava down. Em operação saudável
@@ -212,7 +224,7 @@ export class QueueLoop {
       }
       for (const item of items) {
         if (!this.active) break
-        await this.processOne(item.id, item.orderNumber)
+        await this.processLeased(item, mode)
       }
       this.ticking = false
       // Em paused: agenda só se tem kick pendente (push enquanto tick rodava).
@@ -247,52 +259,53 @@ export class QueueLoop {
     }
   }
 
-  private async processOne(id: string, orderNumber: string): Promise<void> {
+  /** Resolve o modo a mandar no claim-lease. Escolha explícita do wizard vence;
+   *  sem ela, deriva do driver (Text-Only → 'ascii', senão 'escpos') e atualiza
+   *  o badge da UI. Pular o detect quando já há escolha evita spawnar
+   *  PowerShell a cada tick (importa em PC fraco). */
+  private async resolvePrintMode(config: PrinterConfig): Promise<PrintModeSelection> {
+    if (config.printMode) return config.printMode
+    const detected = await detectPrintMode(config)
+    this.deps.state.setPrintMode(detected.mode, detected.driver)
+    return detected.mode === 'compatibility' ? 'ascii' : 'escpos'
+  }
+
+  private logPrintMode(mode: PrintModeSelection): void {
+    if (this.lastLoggedMode === mode) return
+    this.lastLoggedMode = mode
+    const label =
+      mode === 'raster' ? 'Imagem (raster)' : mode === 'ascii' ? 'Simples (ASCII)' : 'Texto (ESC/POS)'
+    this.deps.state.pushLog({
+      time: nowLogTime(),
+      level: 'info',
+      message: `Modo de impressão: ${label}`
+    })
+  }
+
+  /** Processa um item já reservado pelo claim-lease: persiste (crash-safety) e
+   *  imprime sempre RAW (os 3 modos vêm como bytes ESC/POS prontos). */
+  private async processLeased(item: LeaseItem, mode: PrintModeSelection): Promise<void> {
     await this.mutex.runExclusive(async () => {
-      let claimedNumber = orderNumber
+      const row: ClaimedRow = {
+        id: item.id,
+        orderNumber: item.orderNumber,
+        bytesB64: item.bytesB64,
+        text: null,
+        paperWidth: normalizePaperWidth(item.paperWidthMm ?? item.paperWidth),
+        copies: 1,
+        claimedAt: Date.now(),
+        leaseExpiresAt: Date.now() + QueueLoop.LEASE_MS,
+        attempts: 0,
+        lastError: null
+      }
+      // Persiste ANTES de imprimir — crash entre aqui e o ack reimprime no
+      // recoverLocal (a dedup fica no ack/lease do servidor).
+      this.deps.localQueue.saveRow(row)
+      this.inFlightClaimId = item.id
       try {
-        // Detecta o modo ANTES do claim — assim o backend já gera o payload
-        // certo (text pra Generic/Text Only, bytes pra driver real). Resultado
-        // também atualiza a UI via state.setPrintMode.
-        const config = this.deps.getPrinterConfig()
-        const detected = await detectPrintMode(config)
-        this.deps.state.setPrintMode(detected.mode, detected.driver)
-        const claimOpts = detected.mode === 'compatibility'
-          ? { mode: 'ascii' as const, paperWidth: config.paperWidth }
-          : undefined
-        const claim = await this.deps.endpoints.claim(id, claimOpts)
-        claimedNumber = claim.item.orderNumber
-        this.deps.localQueue.save(claim)
-        this.inFlightClaimId = id
-        try {
-          // Backend devolveu `text` (modo compatibilidade) ou `bytes` (default).
-          // Determinístico pelo discriminator `mode` no payload — fallback pra
-          // bytes em backends antigos (payloadVersion=1, sem `mode`).
-          const isAsciiPayload = claim.payload.mode === 'ascii'
-          await this.printAndAck({
-            id,
-            orderNumber: claimedNumber,
-            bytesB64: isAsciiPayload ? '' : (claim.payload as { bytes: string }).bytes,
-            text: isAsciiPayload ? (claim.payload as { text: string }).text : null,
-            paperWidth: normalizePaperWidth(
-              claim.payload.paperWidthMm ?? claim.payload.paperWidth
-            ),
-            copies: claim.payload.copies,
-            claimedAt: Date.now(),
-            leaseExpiresAt: Date.parse(claim.leaseExpiresAt) || null,
-            attempts: 0,
-            lastError: null
-          }, claim.item.reason)
-        } finally {
-          this.inFlightClaimId = null
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        this.deps.state.pushLog({
-          time: nowLogTime(),
-          level: 'warn',
-          message: `Claim falhou pra #${claimedNumber}: ${sanitize(msg)}`
-        })
+        await this.printAndAck(row, mode, item.reason)
+      } finally {
+        this.inFlightClaimId = null
       }
     })
   }
@@ -318,10 +331,10 @@ export class QueueLoop {
     await Promise.race([releasePromise, timeoutPromise])
   }
 
-  /** `reason` opcional vem do `item.reason` do /claim quando disponível
-   *  (v1.10.0+ do backend). No `recoverLocal()` o reason é undefined porque
-   *  a row vem do sqlite local — perdemos granularidade só nesse edge case. */
-  private async printAndAck(row: ClaimedRow, reason?: string): Promise<void> {
+  /** `mode`/`reason` vêm do item do claim-lease. No `recoverLocal()` ambos são
+   *  undefined (a row vem do sqlite local, sem o modo registrado) — só perdemos
+   *  granularidade de telemetria nesse edge case. */
+  private async printAndAck(row: ClaimedRow, mode?: PrintModeSelection, reason?: string): Promise<void> {
     const startedAt = Date.now()
     const { id, orderNumber } = row
     const printerConfig = this.deps.getPrinterConfig()
@@ -329,16 +342,14 @@ export class QueueLoop {
     this.deps.telemetry.emit({
       type: 'print_attempt',
       queueId: id,
+      printMode: mode,
       ...reasonField,
       ...this.printerContext(printerConfig)
     })
     try {
-      // row.text presente = modo compatibilidade (spooler type='TEXT').
-      // Senão = caminho default ESC/POS RAW. Spooler.print(string|Buffer)
-      // detecta tipo pelo argumento.
-      const data: Buffer | string = row.text
-        ? row.text
-        : Buffer.from(row.bytesB64, 'base64')
+      // v1.10.4: claim-lease entrega os 3 modos como bytes ESC/POS prontos —
+      // sempre RAW. O caminho TEXT foi aposentado pra impressão de cupom.
+      const data = Buffer.from(row.bytesB64, 'base64')
       const printer = makePrinter(printerConfig)
       try {
         await printer.print(data, `Pedido #${orderNumber} - Venda no Zap`)
@@ -373,6 +384,7 @@ export class QueueLoop {
         type: 'print_success',
         queueId: id,
         durationMs,
+        printMode: mode,
         ...reasonField,
         ...this.printerContext(printerConfig)
       })
@@ -413,6 +425,7 @@ export class QueueLoop {
         durationMs: Date.now() - startedAt,
         errorCode: code,
         errorMessage,
+        printMode: mode,
         ...reasonField,
         ...this.printerContext(printerConfig)
       })

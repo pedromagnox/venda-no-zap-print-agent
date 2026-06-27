@@ -1,12 +1,16 @@
 import type { ApiClient } from './client'
 import type {
+  ClaimLeaseResponse,
   ClaimOpts,
   ClaimResponse,
+  LeaseItem,
   PingRequest,
+  PrintModeSelection,
   QueueListItem,
   QueueListResponse,
   ReleaseRequest,
-  TelemetryEvent
+  TelemetryEvent,
+  TestReceiptResult
 } from './types'
 
 // Métodos tipados sobre o cliente. Centraliza paths e shape dos requests
@@ -51,6 +55,44 @@ export class PrintAgentEndpoints {
     return normalizeClaimResponse(raw, id)
   }
 
+  /**
+   * POST /api/print-queue/claim-lease  (v1.10.4: caminho único de claim)
+   *
+   * Lease atômico de até `max` itens, já com os bytes ESC/POS montados no
+   * `mode` pedido (escpos/ascii/raster) — todos RAW. Substitui o listQueue +
+   * /claim/:id por-item (que era escpos/ascii apenas, sem raster).
+   *
+   * `mode` vai SEMPRE — sem ele o backend cai na flag da loja (comportamento
+   * antigo), que não queremos. Tolerante ao envelope `{items}` (reusa
+   * extractItemsArray).
+   */
+  async claimLease(max: number, mode: PrintModeSelection): Promise<ClaimLeaseResponse> {
+    const raw = await this.api.postJson<unknown>('/api/print-queue/claim-lease', { max, mode })
+    return { items: extractItemsArray(raw).map(normalizeLeaseItem) }
+  }
+
+  /**
+   * POST /api/print-queue/test-receipt
+   *
+   * Cupom-amostra (cheio de acento) renderizado no `mode` pedido. O raster só o
+   * servidor desenha, então o teste de todos os modos vem pronto em bytes — o
+   * agente só repassa RAW. Usado pelo wizard de modo de impressão.
+   */
+  async testReceipt(mode: PrintModeSelection, paperWidth?: 58 | 80): Promise<TestReceiptResult> {
+    const body: Record<string, unknown> = { mode }
+    if (paperWidth) body.paperWidth = paperWidth
+    const raw = await this.api.postJson<Record<string, unknown>>(
+      '/api/print-queue/test-receipt',
+      body
+    )
+    return {
+      mode: (raw.mode as PrintModeSelection) ?? mode,
+      paperWidth: raw.paperWidth as TestReceiptResult['paperWidth'],
+      paperWidthMm: raw.paperWidthMm as TestReceiptResult['paperWidthMm'],
+      bytesB64: strOr(raw.bytesBase64, '')
+    }
+  }
+
   ack(id: string): Promise<void> {
     return this.api.post(`/api/print-queue/${encodeURIComponent(id)}/ack`)
   }
@@ -93,6 +135,24 @@ function normalizeQueueItem(it: unknown): QueueListItem {
   const orderNumber = strOr(o.orderNumber, strOr(o.orderId, id))
   const createdAt = typeof o.createdAt === 'string' ? o.createdAt : undefined
   return { id, orderNumber, createdAt }
+}
+
+function normalizeLeaseItem(it: unknown): LeaseItem {
+  const o = (it && typeof it === 'object' ? it : {}) as Record<string, unknown>
+  const id = strOr(o.id, 'unknown')
+  // claim-lease não traz número amigável — só `orderId` (UUID). Usamos como
+  // identificador de exibição/histórico. Se um dia o backend mandar
+  // `orderNumber`, ele tem precedência.
+  const orderNumber = strOr(o.orderNumber, strOr(o.orderId, id))
+  const reason = typeof o.reason === 'string' ? o.reason : undefined
+  return {
+    id,
+    orderNumber,
+    ...(reason ? { reason } : {}),
+    bytesB64: strOr(o.bytesBase64, ''),
+    paperWidth: o.paperWidth as LeaseItem['paperWidth'],
+    paperWidthMm: o.paperWidthMm as LeaseItem['paperWidthMm']
+  }
 }
 
 function normalizeClaimResponse(

@@ -132,6 +132,48 @@ export function startMockBackend(port: number): Promise<MockHandle> {
       return send(res, 200, { items })
     }
 
+    // claim-lease (batch) — caminho do agente desde v1.10.4. O mock não monta
+    // modos diferentes; devolve os mesmos bytes (ignora `mode`) — basta pro dev.
+    if (path === '/api/print-queue/claim-lease' && method === 'POST') {
+      const body = await readJson(req).catch((): Record<string, unknown> => ({}))
+      const max = typeof body['max'] === 'number' ? (body['max'] as number) : 5
+      const now = Date.now()
+      for (const item of queue) {
+        if (item.status === 'leased' && item.leasedUntil !== undefined && item.leasedUntil < now) {
+          item.status = 'pending'
+          delete item.leasedUntil
+        }
+      }
+      const leased = queue.filter((q) => q.status === 'pending').slice(0, max)
+      for (const item of leased) {
+        item.status = 'leased'
+        item.leasedUntil = now + 120_000
+      }
+      const items = leased.map((q) => ({
+        id: q.id,
+        orderId: q.orderNumber,
+        reason: 'new_order',
+        paperWidth: q.payload.paperWidth === 58 ? '58mm' : '80mm',
+        paperWidthMm: q.payload.paperWidth,
+        bytesBase64: q.payload.bytes
+      }))
+      return send(res, 200, { items, payloadVersion: 1 })
+    }
+
+    if (path === '/api/print-queue/test-receipt' && method === 'POST') {
+      const body = await readJson(req).catch((): Record<string, unknown> => ({}))
+      const mode = typeof body['mode'] === 'string' ? (body['mode'] as string) : 'escpos'
+      const pw = body['paperWidth'] === 58 ? 58 : 80
+      const sample = `TESTE [${mode}]\nLinguica, Debito, acao, pao\n\n`
+      return send(res, 200, {
+        mode,
+        paperWidth: pw === 58 ? '58mm' : '80mm',
+        paperWidthMm: pw,
+        bytesBase64: Buffer.from(sample, 'utf8').toString('base64'),
+        payloadVersion: 1
+      })
+    }
+
     const claimMatch = path.match(/^\/api\/print-queue\/([\w-]+)\/claim$/)
     if (claimMatch && method === 'POST') {
       const id = claimMatch[1]!
