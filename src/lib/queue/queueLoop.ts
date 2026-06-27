@@ -158,7 +158,7 @@ export class QueueLoop {
     })
     for (const row of pending) {
       if (!this.active) break
-      await this.mutex.runExclusive(() => this.printAndAck(row))
+      await this.mutex.runExclusive(() => this.printAndAck(row, row.printMode ?? undefined))
     }
   }
 
@@ -291,6 +291,7 @@ export class QueueLoop {
         orderNumber: item.orderNumber,
         bytesB64: item.bytesB64,
         text: null,
+        printMode: mode,
         paperWidth: normalizePaperWidth(item.paperWidthMm ?? item.paperWidth),
         copies: 1,
         claimedAt: Date.now(),

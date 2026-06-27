@@ -1,7 +1,5 @@
 import type Database from 'better-sqlite3'
-import type { ClaimResponse } from '@lib/api/types'
-import type { PaperWidth } from '@shared/types'
-import { normalizePaperWidth } from './paperWidth'
+import type { PaperWidth, PrintModeSelection } from '@shared/types'
 
 // Persistência de itens claimados-mas-não-impressos. Permite resumir
 // impressão depois de crash sem perder pedidos pra fila do servidor.
@@ -16,10 +14,13 @@ export type ClaimedRow = {
   id: string
   orderNumber: string
   bytesB64: string
-  /** Cupom em texto puro (modo compatibilidade — driver Generic/Text Only).
-   *  Quando presente, o printAndAck usa text + type='TEXT' no spooler em
-   *  vez de bytes ESC/POS. Mutualmente exclusivo com bytesB64 conteúdo. */
+  /** Legado: cupom em texto puro do modo compatibilidade antigo. Desde v1.10.4
+   *  todos os modos vêm como bytes RAW, então fica sempre null em itens novos.
+   *  Mantido só pra ler rows pendentes gravadas por versões anteriores. */
   text: string | null
+  /** Modo (escpos/ascii/raster) com que o item foi claimado. Usado pra carimbar
+   *  a telemetria no recoverLocal após crash/reboot. */
+  printMode: PrintModeSelection | null
   paperWidth: PaperWidth
   copies: number
   claimedAt: number
@@ -33,6 +34,7 @@ type RawRow = {
   orderNumber: string
   bytesB64: string
   text: string | null
+  printMode: string | null
   paperWidth: number
   copies: number
   claimedAt: number
@@ -51,15 +53,15 @@ export class LocalQueue {
   constructor(private readonly db: Database.Database) {
     this.stmtInsert = db.prepare(`
       INSERT OR REPLACE INTO claimed_items
-        (id, order_number, bytes_b64, text_data, paper_width, copies, claimed_at, lease_expires_at, attempts, last_error)
+        (id, order_number, bytes_b64, text_data, print_mode, paper_width, copies, claimed_at, lease_expires_at, attempts, last_error)
       VALUES
-        (@id, @orderNumber, @bytesB64, @text, @paperWidth, @copies, @claimedAt, @leaseExpiresAt, 0, NULL)
+        (@id, @orderNumber, @bytesB64, @text, @printMode, @paperWidth, @copies, @claimedAt, @leaseExpiresAt, 0, NULL)
     `)
     this.stmtDelete = db.prepare(`DELETE FROM claimed_items WHERE id = ?`)
     this.stmtList = db.prepare(`
       SELECT
         id, order_number AS orderNumber, bytes_b64 AS bytesB64,
-        text_data AS text,
+        text_data AS text, print_mode AS printMode,
         paper_width AS paperWidth, copies, claimed_at AS claimedAt,
         lease_expires_at AS leaseExpiresAt, attempts, last_error AS lastError
       FROM claimed_items
@@ -71,39 +73,16 @@ export class LocalQueue {
     this.stmtCount = db.prepare(`SELECT COUNT(*) AS c FROM claimed_items`)
   }
 
-  save(claim: ClaimResponse): void {
-    const leaseMs = Date.parse(claim.leaseExpiresAt)
-    // Normaliza o paperWidth antes de gravar — o backend pode mandar
-    // "80mm" (string) ou 80 (number). Coluna no SQLite é INTEGER, e o
-    // list() compara com number literal — sem normalizar aqui, recovery
-    // após crash com papel 58mm cai sempre em 80mm silenciosamente.
-    const paperWidthNum = normalizePaperWidth(
-      claim.payload.paperWidthMm ?? claim.payload.paperWidth
-    )
-    // Payload tem `text` (modo compat) ou `bytes` (default). Salva o que tiver
-    // — o outro campo fica '' / null. printAndAck escolhe qual usar.
-    const isAscii = claim.payload.mode === 'ascii'
-    this.stmtInsert.run({
-      id: claim.item.id,
-      orderNumber: claim.item.orderNumber,
-      bytesB64: isAscii ? '' : (claim.payload as { bytes: string }).bytes,
-      text: isAscii ? (claim.payload as { text: string }).text : null,
-      paperWidth: paperWidthNum,
-      copies: claim.payload.copies,
-      claimedAt: Date.now(),
-      leaseExpiresAt: Number.isFinite(leaseMs) ? leaseMs : null
-    })
-  }
-
-  /** Persiste um item já claimado pelo claim-lease (v1.10.4) — o payload já
-   *  vem pronto, sem o shape ClaimResponse do /claim por-item. Sempre bytes
-   *  (text=null): claim-lease entrega os 3 modos como bytes RAW. */
+  /** Persiste um item já claimado pelo claim-lease (v1.10.4+) ANTES de imprimir
+   *  (crash-safety). Sempre bytes RAW (text=null); guarda o printMode pro
+   *  recoverLocal carimbar a telemetria certa após crash/reboot. */
   saveRow(row: ClaimedRow): void {
     this.stmtInsert.run({
       id: row.id,
       orderNumber: row.orderNumber,
       bytesB64: row.bytesB64,
       text: row.text,
+      printMode: row.printMode,
       paperWidth: row.paperWidth,
       copies: row.copies,
       claimedAt: row.claimedAt,
@@ -119,7 +98,8 @@ export class LocalQueue {
     const raw = this.stmtList.all() as RawRow[]
     return raw.map((r) => ({
       ...r,
-      paperWidth: r.paperWidth === 58 ? 58 : 80
+      paperWidth: r.paperWidth === 58 ? 58 : 80,
+      printMode: (r.printMode as PrintModeSelection | null) ?? null
     }))
   }
 

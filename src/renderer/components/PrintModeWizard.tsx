@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Logo } from './Logo'
 import type { PrintModeSelection } from '@shared/types'
 
@@ -26,6 +26,7 @@ type Props = {
 }
 
 type View =
+  | { kind: 'intro' } // tela inicial — só imprime após "Começar" (sem surpresa)
   | { kind: 'printing'; mode: PrintModeSelection }
   | { kind: 'ask-printed' } // Texto: saiu o cupom?
   | { kind: 'ask-accent' } // Texto: acentos certos?
@@ -48,8 +49,7 @@ export function PrintModeWizard({
   onSupport,
   onChangePrinter
 }: Props): JSX.Element {
-  const [view, setView] = useState<View>({ kind: 'printing', mode: 'escpos' })
-  const started = useRef(false)
+  const [view, setView] = useState<View>({ kind: 'intro' })
 
   const printAndAsk = async (mode: PrintModeSelection): Promise<void> => {
     setView({ kind: 'printing', mode })
@@ -67,13 +67,6 @@ export function PrintModeWizard({
           : { kind: 'ask-ascii' }
     )
   }
-
-  useEffect(() => {
-    if (started.current) return
-    started.current = true
-    void printAndAsk('escpos')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   const save = async (mode: PrintModeSelection): Promise<void> => {
     setView({ kind: 'saving' })
@@ -98,6 +91,24 @@ export function PrintModeWizard({
 
   function renderBody(): JSX.Element {
     switch (view.kind) {
+      case 'intro':
+        return (
+          <div className="field">
+            <p>
+              Vamos imprimir um cupom de teste e você me diz como saiu — em poucos
+              cliques a impressora fica no melhor modo.
+            </p>
+            <p className="field-hint">Deixe a impressora ligada e com papel.</p>
+            <button
+              type="button"
+              className="btn btn-primary btn-block"
+              onClick={() => void printAndAsk('escpos')}
+            >
+              Começar
+            </button>
+          </div>
+        )
+
       case 'printing':
         return (
           <div className="field">

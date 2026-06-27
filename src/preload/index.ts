@@ -4,9 +4,7 @@ import type {
   PrinterConfig,
   Preferences,
   PrintModeSelection,
-  SpoolerPrinterInfo,
-  DetectedCheapPrinter,
-  InstallResult
+  SpoolerPrinterInfo
 } from '@shared/types'
 
 export type ConnectResult =
@@ -46,15 +44,7 @@ const api = {
     ipcRenderer.invoke('agent:printTestReceipt', mode),
 
   listSpoolerPrinters: (): Promise<SpoolerPrinterInfo[]> =>
-    ipcRenderer.invoke('agent:listSpoolerPrinters'),
-
-  detectCheapPrinter: (): Promise<DetectedCheapPrinter[]> =>
-    ipcRenderer.invoke('printer:detectCheap'),
-
-  installCheapPrinter: (args: {
-    printerName: string
-    portName: string
-  }): Promise<InstallResult> => ipcRenderer.invoke('printer:installCheap', args)
+    ipcRenderer.invoke('agent:listSpoolerPrinters')
 }
 
 contextBridge.exposeInMainWorld('printAgent', api)

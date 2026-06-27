@@ -146,6 +146,13 @@ function applySchema(db: Database.Database): void {
   } catch {
     /* coluna já existe */
   }
+  // v1.10.6: print_mode guarda o modo (escpos/ascii/raster) com que o item foi
+  // claimado — pro recoverLocal carimbar a telemetria certa após crash/reboot.
+  try {
+    db.exec(`ALTER TABLE claimed_items ADD COLUMN print_mode TEXT`)
+  } catch {
+    /* coluna já existe */
+  }
   // bytes_b64 era NOT NULL no schema original. No modo compat o item só tem
   // text_data, então precisamos relaxar essa restrição. SQLite não suporta
   // ALTER COLUMN — mas como NOT NULL só rejeita NULL explícito no INSERT,

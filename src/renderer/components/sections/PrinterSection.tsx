@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type {
-  DetectedCheapPrinter,
   PaperWidth,
   PrinterConfig,
   PrinterType,
@@ -69,15 +68,6 @@ export function PrinterSection({
 }: PrinterSectionProps): JSX.Element {
   const [spoolerList, setSpoolerList] = useState<SpoolerPrinterInfo[]>([])
   const [spoolerLoading, setSpoolerLoading] = useState(false)
-  const [cheapDetected, setCheapDetected] = useState<DetectedCheapPrinter[]>([])
-  const [installingCheap, setInstallingCheap] = useState(false)
-  const [installError, setInstallError] = useState<string | null>(null)
-  // Trackeia VID+porta de devices que já tentamos instalar nesta sessão de UI.
-  // Sem isso, uma falha de install (ex: PowerShell elevation negada) faria o
-  // useEffect tentar de novo a cada re-render, virando spam. Auto-trigger
-  // dispara só uma vez por device por sessão; se falhar, o usuário tem o
-  // botão "Tentar novamente" abaixo.
-  const autoAttempted = useRef<Set<string>>(new Set())
 
   const loadSpooler = async (): Promise<void> => {
     setSpoolerLoading(true)
@@ -88,181 +78,15 @@ export function PrinterSection({
     }
   }
 
-  const loadCheapDetection = async (): Promise<void> => {
-    try {
-      const list = await window.printAgent.detectCheapPrinter()
-      setCheapDetected(list)
-    } catch {
-      setCheapDetected([])
-    }
-  }
-
   useEffect(() => {
-    if (config.type === 'windows_spooler') {
-      void loadSpooler()
-      void loadCheapDetection()
-    }
+    if (config.type === 'windows_spooler') void loadSpooler()
   }, [config.type])
-
-  // Térmicas detectadas + ainda sem fila Windows + com porta USB válida.
-  // Divide em 2 categorias pelo `isKnown`:
-  //   - knownCheap: VID na whitelist (YICHIP) → auto-instala silencioso
-  //   - unknownCandidate: heurística (USB Printing Support sem fila) →
-  //     mostra diálogo de confirmação pra lojista decidir entre Generic
-  //     ou instalar driver do fabricante (Epson/Bematech/etc).
-  const knownCheap = cheapDetected.filter(
-    (d) => d.isKnown && !d.alreadyInstalled && d.portName !== null
-  )
-  const unknownCandidates = cheapDetected.filter(
-    (d) => !d.isKnown && !d.alreadyInstalled && d.portName !== null
-  )
-
-  const handleInstallCheap = async (target: DetectedCheapPrinter): Promise<void> => {
-    if (!target.portName) return
-    setInstallingCheap(true)
-    setInstallError(null)
-    try {
-      const result = await window.printAgent.installCheapPrinter({
-        printerName: target.suggestedName,
-        portName: target.portName
-      })
-      if (!result.ok) {
-        setInstallError(result.error)
-        return
-      }
-      // Sucesso: recarrega lista, seleciona a nova impressora + 58mm + dispara
-      // re-detect do print mode (driver Generic → ativa compatibilidade).
-      await loadSpooler()
-      onChange({
-        ...config,
-        spoolerName: result.printerName,
-        paperWidth: 58
-      })
-      // Recarrega detecção — a impressora deixa de ser "candidata" porque
-      // alreadyInstalled = true agora.
-      await loadCheapDetection()
-    } catch (err) {
-      setInstallError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setInstallingCheap(false)
-    }
-  }
-
-  // Auto-instalação silenciosa pra VIDs conhecidos (YICHIP): o lojista que
-  // comprou térmica chinesa de R$ 90 não precisa decidir nada, só funcionar.
-  // Se falhar (admin negado, driver ausente, porta sumiu), aí sim mostramos
-  // mensagem discreta com botão de tentar de novo.
-  useEffect(() => {
-    if (installingCheap) return
-    const target = knownCheap[0]
-    if (!target || !target.portName) return
-    const key = `${target.vid}:${target.portName}`
-    if (autoAttempted.current.has(key)) return
-    autoAttempted.current.add(key)
-    void handleInstallCheap(target)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [knownCheap, installingCheap])
-
-  // Diálogo de confirmação pra VIDs desconhecidos. Lojista decide entre:
-  //   - "Configurar como simples" → instala Generic / Text Only (ASCII, sem
-  //     corte automático). Bom pra térmicas genéricas chinesas (Goojprt,
-  //     Xprinter, ZJ-58, etc).
-  //   - "Cancelar" → não instala. Esperado pra impressoras de marca real
-  //     (Epson/Bematech/Daruma/Elgin) que precisam do driver do fabricante.
-  // A escolha é trackeada via autoAttempted (cancelar = "não pergunta de
-  // novo nesta sessão"). Se o lojista reabrir o app, a pergunta volta.
-  const pendingUnknownDialog = unknownCandidates.find(
-    (d) => d.portName !== null && !autoAttempted.current.has(`${d.vid}:${d.portName}`)
-  ) ?? null
-  const [, forceRerender] = useState({})
-
-  const dismissUnknown = (target: DetectedCheapPrinter): void => {
-    if (!target.portName) return
-    autoAttempted.current.add(`${target.vid}:${target.portName}`)
-    forceRerender({})
-  }
-
-  const confirmUnknown = async (target: DetectedCheapPrinter): Promise<void> => {
-    if (!target.portName) return
-    autoAttempted.current.add(`${target.vid}:${target.portName}`)
-    await handleInstallCheap(target)
-  }
 
   return (
     <section className="section">
       <div className="section-header">
         <span className="section-title">Impressora</span>
       </div>
-
-      {config.type === 'windows_spooler' && knownCheap.length > 0 && installError && (
-        <div className="compat-badge" role="status" style={{ marginBottom: 8 }}>
-          Não consegui configurar a impressora barata ({knownCheap[0]!.vendor})
-          automaticamente.
-          <div style={{ color: 'var(--color-error)', marginTop: 6, fontSize: '0.75rem' }}>
-            {installError}
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              style={{ padding: '4px 12px', fontSize: '0.75rem' }}
-              onClick={() => {
-                setInstallError(null)
-                void handleInstallCheap(knownCheap[0]!)
-              }}
-              disabled={installingCheap}
-            >
-              {installingCheap ? 'Configurando…' : 'Tentar novamente'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {config.type === 'windows_spooler' && pendingUnknownDialog && (
-        <div className="compat-badge" role="dialog" aria-labelledby="cheap-unknown-title" style={{ marginBottom: 8 }}>
-          <strong id="cheap-unknown-title">
-            Impressora USB detectada
-          </strong>
-          <div style={{ marginTop: 4, fontSize: '0.8rem' }}>
-            <code>{pendingUnknownDialog.deviceName || 'sem nome'}</code> não tem
-            driver instalado. Quer configurar como impressora simples (texto puro,
-            sem acento, sem corte automático)?
-          </div>
-          <div style={{ marginTop: 6, fontSize: '0.7rem', color: 'var(--color-muted)' }}>
-            Use essa opção se for uma térmica genérica chinesa. Se for de marca
-            (Epson, Bematech, Daruma, Elgin), cancele e instale o driver do
-            fabricante primeiro — vai funcionar muito melhor.
-          </div>
-          {installError && (
-            <div style={{ color: 'var(--color-error)', marginTop: 6, fontSize: '0.75rem' }}>
-              Erro: {installError}
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              style={{ padding: '4px 12px', fontSize: '0.75rem' }}
-              onClick={() => {
-                setInstallError(null)
-                void confirmUnknown(pendingUnknownDialog)
-              }}
-              disabled={installingCheap}
-            >
-              {installingCheap ? 'Configurando…' : 'Configurar como simples'}
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              style={{ padding: '4px 12px', fontSize: '0.75rem' }}
-              onClick={() => dismissUnknown(pendingUnknownDialog)}
-              disabled={installingCheap}
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      )}
 
       <div className="field">
         <label className="label">Tipo de conexão</label>
