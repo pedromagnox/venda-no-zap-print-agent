@@ -9,16 +9,7 @@ import { LogsSection } from './components/sections/LogsSection'
 import { ConnectionSection } from './components/sections/ConnectionSection'
 import { PreferencesSection } from './components/sections/PreferencesSection'
 import type { AgentSnapshot, PrinterConfig } from '@shared/types'
-
-// "Configurada" = tem alvo selecionado (spooler name ou host de rede). Largura
-// não conta como pendência — sempre tem default 80mm. Fonte única usada tanto
-// pelo gate de onboarding (App) quanto pelo bloqueio do botão Continuar
-// (PrinterOnboardingScreen).
-function isPrinterConfigured(p: PrinterConfig): boolean {
-  if (p.type === 'windows_spooler') return !!(p.spoolerName ?? '').trim()
-  if (p.type === 'network') return !!(p.host ?? '').trim()
-  return false
-}
+import { isPrinterConfigured } from './lib/printerConfig'
 
 const SUPPORT_WHATSAPP_NUMBER = '5511921048695'
 

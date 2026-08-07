@@ -84,6 +84,12 @@ function logDetectionResult(
     })
     return
   }
+  // 'not-spooler' (impressora de rede) e 'no-spooler-name' (nada selecionado
+  // ainda) são estados esperados, não indeterminação — o boot (index.ts) já
+  // os suprime. v1.10.7: suprime aqui também; como o wizard chama setPrinter
+  // a cada tecla digitada, isso gerava ~1 WARN/tecla e afogava o log de
+  // suporte (caso 07/08/2026: 20+ linhas em 20s).
+  if (d.reason === 'not-spooler' || d.reason === 'no-spooler-name') return
   // Casos non-happy: loga com warn pra ficar visível no suporte.
   state.pushLog({
     time: nowLogTime(),

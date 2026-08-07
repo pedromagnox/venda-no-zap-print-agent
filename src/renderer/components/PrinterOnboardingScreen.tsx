@@ -8,6 +8,7 @@ import type {
   SpoolerPrinterInfo,
   SpoolerStatus
 } from '@shared/types'
+import { describeHostIssue, isPrinterConfigured } from '../lib/printerConfig'
 
 type Props = {
   config: PrinterConfig
@@ -25,13 +26,6 @@ const TYPES: { value: PrinterType; label: string; pill: 'recommended' | 'advance
 ]
 
 const WIDTHS: PaperWidth[] = [58, 80]
-
-// Bate com `isPrinterConfigured` em App.tsx — fonte única de "tá pronto".
-function configured(c: PrinterConfig): boolean {
-  if (c.type === 'windows_spooler') return !!(c.spoolerName ?? '').trim()
-  if (c.type === 'network') return !!(c.host ?? '').trim()
-  return false
-}
 
 export function PrinterOnboardingScreen({
   config,
@@ -58,7 +52,7 @@ export function PrinterOnboardingScreen({
     if (config.type === 'windows_spooler') void loadSpooler()
   }, [config.type])
 
-  const isConfigured = configured(config)
+  const isConfigured = isPrinterConfigured(config)
 
   return (
     <div className="printer-onboarding">
@@ -137,30 +131,38 @@ export function PrinterOnboardingScreen({
           </div>
         )}
 
-        {config.type === 'network' && (
-          <div className="field">
-            <label className="label">Endereço da impressora</label>
-            <div className="field-row">
-              <input
-                className="input"
-                placeholder="192.168.0.100"
-                value={config.host ?? ''}
-                onChange={(e) => onChange({ ...config, host: e.target.value })}
-                spellCheck={false}
-              />
-              <input
-                className="input"
-                placeholder="9100"
-                type="number"
-                value={config.port ?? 9100}
-                onChange={(e) => onChange({ ...config, port: Number(e.target.value) || 9100 })}
-              />
+        {config.type === 'network' && (() => {
+          const hostIssue = describeHostIssue(config.host)
+          return (
+            <div className="field">
+              <label className="label">Endereço da impressora</label>
+              <div className="field-row">
+                <input
+                  className="input"
+                  placeholder="192.168.0.100"
+                  value={config.host ?? ''}
+                  onChange={(e) => onChange({ ...config, host: e.target.value })}
+                  spellCheck={false}
+                />
+                <input
+                  className="input"
+                  placeholder="9100"
+                  type="number"
+                  value={config.port ?? 9100}
+                  onChange={(e) => onChange({ ...config, port: Number(e.target.value) || 9100 })}
+                />
+              </div>
+              <div className="field-hint">
+                IP fixo da impressora térmica na rede (Wi-Fi ou Ethernet). Porta 9100 é o padrão ESC/POS.
+              </div>
+              {hostIssue && (
+                <div className="field-hint" style={{ color: '#b45309', marginTop: 6 }}>
+                  ⚠ {hostIssue}
+                </div>
+              )}
             </div>
-            <div className="field-hint">
-              IP fixo da impressora térmica na rede (Wi-Fi ou Ethernet). Porta 9100 é o padrão ESC/POS.
-            </div>
-          </div>
-        )}
+          )
+        })()}
 
         <div className="field">
           <label className="label">Largura do papel</label>
