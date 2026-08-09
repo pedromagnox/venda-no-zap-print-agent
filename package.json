@@ -16,7 +16,8 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "dist": "electron-vite build && electron-builder",
-    "dist:win": "electron-vite build && electron-builder --win"
+    "dist:win": "electron-vite build && electron-builder --win",
+ "dist:win:vps": "node scripts/fetch-win-prebuilds.mjs && npm run dist:win"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.2.8",
