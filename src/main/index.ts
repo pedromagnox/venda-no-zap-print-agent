@@ -205,7 +205,12 @@ if (!gotLock) {
       readJsonFile<PrinterConfig>('printer', initial.printer),
       readJsonFile<Preferences>('preferences', initial.preferences)
     ])
-    state.patch({ printer: persistedPrinter, preferences: persistedPrefs })
+    // Arquivo gravado por versão anterior não tem as chaves novas — o spread
+    // sobre o default garante boolean em vez de undefined (Switch controlado).
+    state.patch({
+      printer: persistedPrinter,
+      preferences: { ...initial.preferences, ...persistedPrefs }
+    })
     // Sincroniza a preferência de auto-start com o registro do Windows
     // (em dev é no-op).
     applyAutoStart(persistedPrefs.autoStart)

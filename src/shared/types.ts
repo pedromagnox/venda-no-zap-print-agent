@@ -44,6 +44,10 @@ export type LogEntry = {
 
 export type Preferences = {
   autoStart: boolean
+  /** Quebra o cupom raster em partes com pausa entre elas, pra impressora
+   *  cujo buffer estoura e imprime só um pedaço. Default OFF — custa alguns
+   *  segundos por cupom e só faz sentido no hardware que tem o problema. */
+  slowPrint: boolean
 }
 
 export type SpoolerStatus = 'normal' | 'error' | 'offline' | 'paper-out' | 'warning' | 'unknown'

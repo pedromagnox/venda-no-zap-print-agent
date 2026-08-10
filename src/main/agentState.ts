@@ -111,7 +111,7 @@ export function makeInitialSnapshot(version: string): AgentSnapshot {
     printerDriver: null,
     history: [],
     logs: [],
-    preferences: { autoStart: true },
+    preferences: { autoStart: true, slowPrint: false },
     connection: { connected: false, storeName: null, storeId: null },
     version
   }

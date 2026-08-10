@@ -10,6 +10,7 @@ export { listSpoolerPrinters, isTextOnlyDriver } from './discovery'
 export type { DiscoveredSpoolerPrinter } from './discovery'
 export { detectPrintMode } from './detectMode'
 export type { DetectedMode } from './detectMode'
+export { printMaybeChunked, splitRasterForSlowPrinter } from './chunkRaster'
 
 export function makePrinter(config: PrinterConfig): Printer {
   switch (config.type) {

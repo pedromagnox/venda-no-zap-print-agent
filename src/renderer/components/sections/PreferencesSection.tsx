@@ -19,6 +19,13 @@ export function PreferencesSection({ prefs, onChange }: PreferencesSectionProps)
         label="Iniciar com o Windows"
         hint="O agente sobe na bandeja ao ligar o PC."
       />
+
+      <Switch
+        checked={prefs.slowPrint}
+        onChange={(v) => onChange({ ...prefs, slowPrint: v })}
+        label="Minha impressora está imprimindo pela metade"
+        hint="Envia o cupom em partes, mais devagar. Leva alguns segundos a mais."
+      />
     </section>
   )
 }
