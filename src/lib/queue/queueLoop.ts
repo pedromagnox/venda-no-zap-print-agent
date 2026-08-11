@@ -2,13 +2,7 @@ import { Mutex } from 'async-mutex'
 import { randomUUID } from 'node:crypto'
 import type { PrintAgentEndpoints } from '@lib/api/endpoints'
 import type { LeaseItem } from '@lib/api/types'
-import {
-  detectPrintMode,
-  makePrinter,
-  printMaybeChunked,
-  PrinterError,
-  type PrinterErrorCode
-} from '@lib/printer'
+import { detectPrintMode, makePrinter, PrinterError, type PrinterErrorCode } from '@lib/printer'
 import { sanitize } from '@lib/telemetry/sanitize'
 import type { TelemetryService } from '@lib/telemetry/service'
 import type { AgentState } from '@main/agentState'
@@ -359,19 +353,7 @@ export class QueueLoop {
       const data = Buffer.from(row.bytesB64, 'base64')
       const printer = makePrinter(printerConfig)
       try {
-        await printMaybeChunked(
-          printer,
-          data,
-          `Pedido #${orderNumber} - Venda no Zap`,
-          this.deps.state.get().preferences.slowPrint === true,
-          (parts, extraMs) => {
-            this.deps.state.pushLog({
-              time: nowLogTime(),
-              level: 'info',
-              message: `Impressão em ${parts} partes (impressora lenta): +${Math.round(extraMs / 100) / 10}s`
-            })
-          }
-        )
+        await printer.print(data, `Pedido #${orderNumber} - Venda no Zap`)
       } finally {
         await printer.close()
       }

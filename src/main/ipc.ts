@@ -8,7 +8,6 @@ import {
   buildTestPage,
   buildTestPageText,
   detectPrintMode,
-  printMaybeChunked,
   PrinterError,
   listSpoolerPrinters
 } from '@lib/printer'
@@ -297,15 +296,7 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
         const bytes = Buffer.from(test.bytesB64, 'base64')
         const printer = makePrinter(config)
         try {
-          // Mesmo caminho da fila: com "imprimindo pela metade" ligado, o
-          // teste sai fatiado igual ao cupom real — senão o wizard aprovaria
-          // um modo que falha no pedido de verdade.
-          await printMaybeChunked(
-            printer,
-            bytes,
-            'Teste de modo - Venda no Zap',
-            state.get().preferences.slowPrint === true
-          )
+          await printer.print(bytes, 'Teste de modo - Venda no Zap')
         } finally {
           await printer.close()
         }

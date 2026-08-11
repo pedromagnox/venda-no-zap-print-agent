@@ -288,7 +288,6 @@ export function App(): JSX.Element {
 
         <PreferencesSection
           prefs={snap.preferences}
-          selectedMode={snap.printer.printMode}
           onChange={async (next) => {
             const r = await window.printAgent.setPreferences(next)
             if (!r.ok) alert(`Não foi possível salvar as preferências: ${r.error}`)
