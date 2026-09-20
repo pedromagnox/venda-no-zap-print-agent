@@ -50,12 +50,20 @@ export class LocalQueue {
   private readonly stmtIncrAttempts: Database.Statement
   private readonly stmtCount: Database.Statement
 
-  constructor(private readonly db: Database.Database) {
+  /** v1.11.0: cada loja conectada tem a sua LocalQueue sobre o MESMO sqlite.
+   *  O recorte é `store_id` — item de uma loja jamais é recuperado (e ackado)
+   *  pela conexão de outra, que responderia 404. Linhas com store_id NULL são
+   *  de antes da atualização e pertencem à primeira loja. */
+  constructor(
+    private readonly db: Database.Database,
+    private readonly storeId: string,
+    private readonly adoptsLegacyRows = false
+  ) {
     this.stmtInsert = db.prepare(`
       INSERT OR REPLACE INTO claimed_items
-        (id, order_number, bytes_b64, text_data, print_mode, paper_width, copies, claimed_at, lease_expires_at, attempts, last_error)
+        (id, order_number, bytes_b64, text_data, print_mode, paper_width, copies, claimed_at, lease_expires_at, attempts, last_error, store_id)
       VALUES
-        (@id, @orderNumber, @bytesB64, @text, @printMode, @paperWidth, @copies, @claimedAt, @leaseExpiresAt, 0, NULL)
+        (@id, @orderNumber, @bytesB64, @text, @printMode, @paperWidth, @copies, @claimedAt, @leaseExpiresAt, 0, NULL, @storeId)
     `)
     this.stmtDelete = db.prepare(`DELETE FROM claimed_items WHERE id = ?`)
     this.stmtList = db.prepare(`
@@ -65,12 +73,15 @@ export class LocalQueue {
         paper_width AS paperWidth, copies, claimed_at AS claimedAt,
         lease_expires_at AS leaseExpiresAt, attempts, last_error AS lastError
       FROM claimed_items
+      WHERE store_id = ? OR (? AND store_id IS NULL)
       ORDER BY claimed_at ASC
     `)
     this.stmtIncrAttempts = db.prepare(`
       UPDATE claimed_items SET attempts = attempts + 1, last_error = ? WHERE id = ?
     `)
-    this.stmtCount = db.prepare(`SELECT COUNT(*) AS c FROM claimed_items`)
+    this.stmtCount = db.prepare(
+      `SELECT COUNT(*) AS c FROM claimed_items WHERE store_id = ? OR (? AND store_id IS NULL)`
+    )
   }
 
   /** Persiste um item já claimado pelo claim-lease (v1.10.4+) ANTES de imprimir
@@ -86,7 +97,8 @@ export class LocalQueue {
       paperWidth: row.paperWidth,
       copies: row.copies,
       claimedAt: row.claimedAt,
-      leaseExpiresAt: row.leaseExpiresAt
+      leaseExpiresAt: row.leaseExpiresAt,
+      storeId: this.storeId
     })
   }
 
@@ -95,7 +107,7 @@ export class LocalQueue {
   }
 
   list(): ClaimedRow[] {
-    const raw = this.stmtList.all() as RawRow[]
+    const raw = this.stmtList.all(this.storeId, this.adoptsLegacyRows ? 1 : 0) as RawRow[]
     return raw.map((r) => ({
       ...r,
       paperWidth: r.paperWidth === 58 ? 58 : 80,
@@ -108,7 +120,7 @@ export class LocalQueue {
   }
 
   count(): number {
-    const row = this.stmtCount.get() as { c: number }
+    const row = this.stmtCount.get(this.storeId, this.adoptsLegacyRows ? 1 : 0) as { c: number }
     return row.c
   }
 }

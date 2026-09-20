@@ -23,7 +23,14 @@ function buildSupportUrl(snap: AgentSnapshot): string {
   lines.push('Olá, preciso de suporte com o Print Agent.')
   lines.push('')
   lines.push(`Versão: v${snap.version}`)
-  if (snap.connection.storeId) {
+  // v1.11.0: pode haver mais de uma loja nesta instalação — o suporte precisa
+  // de TODOS os ids, senão investiga a loja errada.
+  if (snap.stores.length === 1) {
+    lines.push(`id da Loja: ${snap.stores[0]!.storeId}`)
+  } else if (snap.stores.length > 1) {
+    lines.push(`Lojas conectadas (${snap.stores.length}):`)
+    for (const s of snap.stores) lines.push(`  - ${s.storeName}: ${s.storeId}`)
+  } else if (snap.connection.storeId) {
     lines.push(`id da Loja: ${snap.connection.storeId}`)
   }
   lines.push(`Status: ${snap.statusMessage}`)
@@ -257,8 +264,7 @@ export function App(): JSX.Element {
 
       <main className="app-body">
         <ConnectionSection
-          connected={snap.connection.connected}
-          storeName={snap.connection.storeName}
+          stores={snap.stores}
           status={snap.status}
           statusLabel={STATUS_BAR_LABEL[snap.status]}
           statusMessage={snap.statusMessage}
@@ -266,8 +272,8 @@ export function App(): JSX.Element {
           connecting={isConnecting}
           onTokenChange={setTokenInput}
           onReconnect={handleConnect}
-          onDisconnect={() => {
-            void window.printAgent.disconnect()
+          onDisconnectStore={(storeId) => {
+            void window.printAgent.disconnectStore(storeId)
           }}
         />
 

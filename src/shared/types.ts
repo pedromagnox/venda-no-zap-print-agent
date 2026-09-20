@@ -107,5 +107,18 @@ export type AgentSnapshot = {
     storeName: string | null
     storeId: string | null
   }
+  /** v1.11.0: uma entrada por loja conectada nesta instalação. A impressora é
+   *  compartilhada (é uma só, física); o que é por loja é a CONEXÃO.
+   *  `connection` acima continua existindo e espelha a PRIMEIRA loja — é o que
+   *  o gate de onboarding e a bandeja usam. */
+  stores: StoreConnectionInfo[]
   version: string
+}
+
+export type StoreConnectionInfo = {
+  storeId: string
+  storeName: string
+  /** Estado desta loja em particular (a bandeja mostra o pior de todas). */
+  status: AgentStatus
+  statusMessage: string
 }

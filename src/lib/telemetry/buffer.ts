@@ -22,13 +22,21 @@ export class TelemetryBuffer {
   private readonly stmtPrune: Database.Statement
   private readonly stmtCount: Database.Statement
 
-  constructor(private readonly db: Database.Database) {
+  /** v1.11.0: escopo por loja — evento é postado num endpoint da loja, então
+   *  drenar evento da loja A pela conexão da loja B o atribuiria à errada.
+   *  Linhas NULL são de antes da atualização; quem as adota é a primeira loja. */
+  constructor(
+    private readonly db: Database.Database,
+    private readonly storeId = '',
+    private readonly adoptsLegacyRows = false
+  ) {
     this.stmtInsert = db.prepare(`
-      INSERT INTO telemetry_buffer (payload, created_at, attempts) VALUES (?, ?, 0)
+      INSERT INTO telemetry_buffer (payload, created_at, attempts, store_id) VALUES (?, ?, 0, ?)
     `)
     this.stmtPending = db.prepare(`
       SELECT id, payload, created_at AS createdAt, attempts, last_error AS lastError
       FROM telemetry_buffer
+      WHERE store_id = ? OR (? AND store_id IS NULL)
       ORDER BY created_at ASC
       LIMIT ?
     `)
@@ -37,15 +45,21 @@ export class TelemetryBuffer {
       UPDATE telemetry_buffer SET attempts = attempts + 1, last_error = ? WHERE id = ?
     `)
     this.stmtPrune = db.prepare(`DELETE FROM telemetry_buffer WHERE created_at < ?`)
-    this.stmtCount = db.prepare(`SELECT COUNT(*) AS c FROM telemetry_buffer`)
+    this.stmtCount = db.prepare(
+      `SELECT COUNT(*) AS c FROM telemetry_buffer WHERE store_id = ? OR (? AND store_id IS NULL)`
+    )
   }
 
   enqueue(event: TelemetryEvent): void {
-    this.stmtInsert.run(JSON.stringify(event), Date.now())
+    this.stmtInsert.run(JSON.stringify(event), Date.now(), this.storeId)
   }
 
   pending(limit = 50): BufferedEvent[] {
-    const rows = this.stmtPending.all(limit) as Array<{
+    const rows = this.stmtPending.all(
+      this.storeId,
+      this.adoptsLegacyRows ? 1 : 0,
+      limit
+    ) as Array<{
       id: number
       payload: string
       createdAt: number
@@ -75,7 +89,7 @@ export class TelemetryBuffer {
   }
 
   count(): number {
-    const row = this.stmtCount.get() as { c: number }
+    const row = this.stmtCount.get(this.storeId, this.adoptsLegacyRows ? 1 : 0) as { c: number }
     return row.c
   }
 }

@@ -10,25 +10,25 @@ import { config } from '@lib/config'
 // (api.vendanozap.app -> vendanozap-api.fly.dev) só tem A record mesmo,
 // IPv6 nunca seria útil aqui.
 dns.setDefaultResultOrder('ipv4first')
-import { ApiClient, rawPostJson } from '@lib/api/client'
-import { PrintAgentEndpoints } from '@lib/api/endpoints'
-import { TokenManager, type ExchangeResult } from '@lib/auth/tokenManager'
 import { getFingerprint } from '@lib/auth/device'
+import {
+  loadAccounts,
+  upsertAccount,
+  removeAccount,
+  type StoredAccount
+} from '@lib/auth/accountsStore'
 import { startMockBackend, type MockHandle } from '@lib/api/mock-backend'
 import { readJsonFile } from '@lib/storage/jsonStore'
 import { openDbWithRecovery, closeDb } from '@lib/storage/db'
-import { LocalQueue } from '@lib/queue/localQueue'
 import { LogsStore } from '@lib/logs/logsStore'
 import { TelemetryBuffer } from '@lib/telemetry/buffer'
-import { TelemetryService } from '@lib/telemetry/service'
-import { Heartbeat } from '@lib/telemetry/heartbeat'
 import { sanitize } from '@lib/telemetry/sanitize'
-import { QueueLoop } from '@lib/queue/queueLoop'
-import { WsClient } from '@lib/queue/wsClient'
 import { detectPrintMode } from '@lib/printer'
 import type { AgentStatus, AgentSnapshot, Preferences, PrinterConfig } from '@shared/types'
 import { formatLogTime } from '@shared/logTime'
 import { AgentState, makeInitialSnapshot } from './agentState'
+import { StoreConnection } from './storeConnection'
+import { Mutex } from 'async-mutex'
 import { registerIpc } from './ipc'
 import { createTray, type TrayController } from './tray'
 import { applyAutoStart, startedHidden } from './autoStart'
@@ -38,9 +38,10 @@ const isDev = !app.isPackaged
 let mainWindow: BrowserWindow | null = null
 let tray: TrayController | null = null
 let mock: MockHandle | null = null
-let queueLoop: QueueLoop | null = null
-let heartbeat: Heartbeat | null = null
-let wsClient: WsClient | null = null
+/** v1.11.0: uma conexão por loja. A impressora é uma só — `printerMutex`
+ *  serializa o papel entre elas. */
+const connections = new Map<string, StoreConnection>()
+const printerMutex = new Mutex()
 let pruneTimer: NodeJS.Timeout | null = null
 let resumeTimer: NodeJS.Timeout | null = null
 let isQuitting = false
@@ -126,9 +127,29 @@ if (!gotLock) {
     }
 
     const { db, recovered: dbRecovered } = openDbWithRecovery()
-    const localQueue = new LocalQueue(db)
+    // Buffer sem escopo: serve só pro prune (DELETE por idade, vale pra todas
+    // as lojas). Cada StoreConnection cria o seu, recortado por store_id.
     const telemetryBuffer = new TelemetryBuffer(db)
     const logsStore = new LogsStore(db)
+    // Crash pode acontecer antes de qualquer loja conectar, e aí não existe
+    // TelemetryService pra enfileirar. Gravamos direto com store_id NULL: no
+    // próximo boot a primeira loja adota (adoptsLegacyRows) e envia.
+    const enqueueCrash = (payload: Record<string, unknown>): void => {
+      try {
+        db.prepare(
+          'INSERT INTO telemetry_buffer (payload, created_at, attempts, store_id) VALUES (?, ?, 0, NULL)'
+        ).run(JSON.stringify(payload), Date.now())
+      } catch {
+        /* swallow */
+      }
+    }
+    const countAll = (table: string): number => {
+      try {
+        return (db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get() as { c: number }).c
+      } catch {
+        return 0
+      }
+    }
 
     const pruned = telemetryBuffer.pruneOlderThan()
     const logsPruned = logsStore.pruneOlderThan()
@@ -139,33 +160,6 @@ if (!gotLock) {
     }, PRUNE_INTERVAL_MS)
 
     const device = await getFingerprint()
-    const tokenManager = new TokenManager(async (refreshToken): Promise<ExchangeResult> => {
-      return rawPostJson<ExchangeResult>(
-        `${config.apiBaseUrl}/api/print-agent/token/exchange`,
-        {
-          refreshToken,
-          agentInstallId: device.agentInstallId,
-          hostname: device.hostname,
-          // v0.4.0: enviar agentVersion no exchange também (não só no ping/telemetria).
-          // Server preenche print_agent_tokens.agent_version aqui — admin consegue
-          // ver qual versão cada PC está rodando direto na tela de tokens.
-          agentVersion: app.getVersion(),
-          os: process.platform
-        }
-      )
-    })
-    const apiClient = new ApiClient(tokenManager)
-    const endpoints = new PrintAgentEndpoints(apiClient)
-    const telemetry = new TelemetryService(apiClient, telemetryBuffer, device, app.getVersion())
-
-    heartbeat = new Heartbeat({
-      endpoints,
-      device,
-      telemetry,
-      appVersion: app.getVersion(),
-      intervalMs: config.heartbeatIntervalMs
-    })
-
     const state = new AgentState(makeInitialSnapshot(app.getVersion()))
     state.on('change', (snap) => tray?.setStatus(snap.status))
 
@@ -192,11 +186,15 @@ if (!gotLock) {
       const ctx = snap.printer.type === 'network' && snap.printer.host
         ? { printerType: snap.printer.type, printerHost: snap.printer.host }
         : { printerType: snap.printer.type }
-      telemetry.emit({
-        type: 'printer_state_change',
-        errorMessage: `${prevStatus} -> ${snap.status}: ${snap.statusMessage}`,
-        ...ctx
-      })
+      // A impressora é da máquina, então a mudança interessa a TODAS as lojas
+      // conectadas — cada uma tem seu próprio destino de telemetria.
+      for (const conn of connections.values()) {
+        conn.telemetry.emit({
+          type: 'printer_state_change',
+          errorMessage: `${prevStatus} -> ${snap.status}: ${snap.statusMessage}`,
+          ...ctx
+        })
+      }
       prevStatus = snap.status
     })
 
@@ -238,31 +236,52 @@ if (!gotLock) {
       }
     })
 
-    queueLoop = new QueueLoop({
-      endpoints,
-      state,
-      localQueue,
-      telemetry,
-      getPrinterConfig: () => state.get().printer,
-      intervalMs: config.pollIntervalMs
-    })
+    // v1.11.0: cria (sem iniciar) a pilha de uma loja. `adoptsLegacyRows` só
+    // pra primeira: as linhas sqlite gravadas antes da atualização não têm
+    // store_id e pertencem à única loja que existia.
+    const makeConnection = (storeId: string, storeName: string): StoreConnection =>
+      new StoreConnection(storeId, storeName, {
+        db,
+        state,
+        device,
+        appVersion: app.getVersion(),
+        getPrinterConfig: () => state.get().printer,
+        withPrinter: (fn) => printerMutex.runExclusive(fn),
+        adoptsLegacyRows: connections.size === 0
+      })
 
-    // v1.0.0: WebSocket "campainha". O push de pedido chama kick() (tick
-    // imediato). claim/print/ack seguem no QueueLoop via HTTP.
-    // v1.9.0: ao conectar, pause() — zero polling redundante (confiamos 100%
-    // no push + catch-up via kickFromReconnect). Ao cair, resume() volta o
-    // polling periódico até reconectar.
-    wsClient = new WsClient({
-      url: config.wsUrl,
-      tokens: tokenManager,
-      state,
-      onJob: () => queueLoop?.kick(),
-      onConnected: () => {
-        queueLoop?.pause()
-        queueLoop?.kickFromReconnect() // catch-up + log de items pendentes
-      },
-      onDisconnected: () => queueLoop?.resume()
-    })
+    /** Conecta (ou reconecta) uma loja a partir do refresh token e persiste. */
+    const connectStore = async (
+      refreshToken: string
+    ): Promise<{ storeId: string; storeName: string }> => {
+      const conn = makeConnection('', '')
+      const { storeId, storeName } = await conn.authenticate(refreshToken)
+      // Já havia conexão dessa loja (recolar o mesmo token): derruba a antiga
+      // pra não existirem dois loops claimando o mesmo pedido.
+      const previous = connections.get(storeId)
+      if (previous) previous.stop()
+      connections.set(storeId, conn)
+      state.upsertStore({
+        storeId,
+        storeName,
+        status: 'green',
+        statusMessage: 'Conectado e pronto pra imprimir.'
+      })
+      await upsertAccount({ storeId, storeName, refreshToken })
+      await conn.start()
+      return { storeId, storeName }
+    }
+
+    const disconnectStore = async (storeId: string): Promise<void> => {
+      const conn = connections.get(storeId)
+      if (conn) {
+        conn.stop()
+        await conn.clearToken()
+        connections.delete(storeId)
+      }
+      state.removeStore(storeId)
+      await removeAccount(storeId)
+    }
 
     // v1.7.0: Modern Standby do Windows 11 + Wi-Fi Intel AX2xx desliga a NIC
     // em S0ix mantendo a sessão "ativa". Sem tratamento, o socket WS fica
@@ -287,18 +306,11 @@ if (!gotLock) {
       resumeTimer = setTimeout(() => {
         resumeTimer = null
         if (!state.get().connection.connected) return
-        // Restart do loop reseta consecutiveListErrors, backoff acumulado e
-        // estado paused — volta pro modo periódico padrão. Quando o WS
-        // reconectar (logo após), onConnected dispara pause() de novo. Sem
-        // isso, o queueLoop herdaria paused=true e ficaria zumbi (sem tick
-        // periódico) caso o WS não reconecte por algum motivo.
-        queueLoop?.stop()
-        void queueLoop?.start()
-        // stop()+start() em vez de forceReconnect(): o suspend marcou active=false
-        // no wsClient, então forceReconnect() (que tem `if (!active) return`)
-        // viraria no-op. start() promove active=true e dispara connect.
-        wsClient?.stop()
-        wsClient?.start()
+        for (const conn of connections.values()) void conn.resumeAfterWake()
+        // resumeAfterWake faz stop()+start() do loop e do WS: reseta
+        // consecutiveListErrors, backoff e o estado paused; e o start() do WS
+        // é necessário porque o suspend marcou active=false (forceReconnect
+        // viraria no-op).
       }, POST_RESUME_DELAY_MS)
     }
 
@@ -312,49 +324,10 @@ if (!gotLock) {
         clearTimeout(resumeTimer)
         resumeTimer = null
       }
-      queueLoop?.stop()
-      wsClient?.stop()
+      for (const conn of connections.values()) conn.suspend()
     })
     powerMonitor.on('resume', () => scheduleRecovery('resume'))
     powerMonitor.on('unlock-screen', () => scheduleRecovery('unlock-screen'))
-
-    // Reage a eventos do token: refresh ok, refresh recusado (token revogado),
-    // ou falha de rede no refresh. Tudo loga + faz a recuperação de estado.
-    tokenManager.on('refresh-success', (info: { expiresInSec: number }) => {
-      const minutes = Math.round(info.expiresInSec / 60)
-      state.pushLog({
-        time: formatLogTime(),
-        level: 'info',
-        message: `Sessão renovada (válida por ${minutes} min).`
-      })
-    })
-    tokenManager.on('refresh-rejected', () => {
-      // Refresh token foi revogado/expirado no servidor — o agent não tem
-      // como se recuperar sozinho. Para tudo e força reauth manual.
-      state.pushLog({
-        time: formatLogTime(),
-        level: 'error',
-        message:
-          'Token de conexão foi revogado pelo servidor. Gere um novo token no painel da loja e cole no campo de conexão.'
-      })
-      queueLoop?.stop()
-      heartbeat?.stop()
-      wsClient?.stop()
-      void tokenManager.clear()
-      state.setConnection(false, null, null)
-      state.setStatus(
-        'red',
-        'Sessão expirada — gere um novo token no painel e cole aqui.'
-      )
-    })
-    tokenManager.on('refresh-failed', (err: Error) => {
-      // Erro de rede/server, não auth — vai retentar no próximo tick do polling.
-      state.pushLog({
-        time: formatLogTime(),
-        level: 'warn',
-        message: `Falha ao renovar sessão: ${err.message}`
-      })
-    })
 
     createWindow()
     if (mainWindow) {
@@ -371,19 +344,15 @@ if (!gotLock) {
     registerIpc(
       {
         state,
-        tokens: tokenManager,
-        endpoints,
         device,
         appVersion: app.getVersion(),
-        queueLoop,
-        heartbeat,
-        telemetry
+        connections,
+        connectStore,
+        disconnectStore,
+        withPrinter: (fn) => printerMutex.runExclusive(fn)
       },
       () => mainWindow
     )
-
-    // Telemetria de boot. Vai pro buffer se offline; drena no primeiro heartbeat.
-    telemetry.emit({ type: 'agent_started' })
 
     state.pushLog({
       time: formatLogTime(),
@@ -414,7 +383,7 @@ if (!gotLock) {
         message: `${logsPruned} log(s) com mais de 48h removidos.`
       })
     }
-    const pendingLocal = localQueue.count()
+    const pendingLocal = countAll('claimed_items')
     if (pendingLocal > 0) {
       state.pushLog({
         time: formatLogTime(),
@@ -422,7 +391,7 @@ if (!gotLock) {
         message: `${pendingLocal} pedido(s) pendente(s) no banco local — recover ao conectar.`
       })
     }
-    const pendingTelemetry = telemetryBuffer.count()
+    const pendingTelemetry = countAll('telemetry_buffer')
     if (pendingTelemetry > 0) {
       state.pushLog({
         time: formatLogTime(),
@@ -435,7 +404,7 @@ if (!gotLock) {
     // no próximo boot envia.
     process.on('uncaughtException', (err) => {
       try {
-        telemetry.enqueueSync({
+        enqueueCrash({
           type: 'agent_crashed',
           errorCode: 'UNCAUGHT_EXCEPTION',
           errorMessage: sanitize(err?.message ?? String(err)).slice(0, 200)
@@ -448,7 +417,7 @@ if (!gotLock) {
     process.on('unhandledRejection', (reason) => {
       try {
         const msg = reason instanceof Error ? reason.message : String(reason)
-        telemetry.enqueueSync({
+        enqueueCrash({
           type: 'agent_crashed',
           errorCode: 'UNHANDLED_REJECTION',
           errorMessage: sanitize(msg).slice(0, 200)
@@ -459,26 +428,34 @@ if (!gotLock) {
       console.error('[main] unhandledRejection:', reason)
     })
 
-    if (await tokenManager.hasRefreshToken()) {
+    // Reconexão silenciosa de TODAS as lojas salvas. Falha de uma não impede
+    // as outras: cada uma vira uma linha vermelha na lista, e a bandeja mostra
+    // o pior estado. `agent_started` sai por loja, depois que ela autentica.
+    const saved: StoredAccount[] = await loadAccounts()
+    for (const acc of saved) {
       try {
-        await endpoints.ping({
-          agentInstallId: device.agentInstallId,
-          hostname: device.hostname,
-          machineIdHash: device.machineIdHash,
-          agentVersion: app.getVersion()
+        const { storeName } = await connectStore(acc.refreshToken)
+        connections.get(acc.storeId || '')?.telemetry.emit({ type: 'agent_started' })
+        state.pushLog({
+          time: formatLogTime(),
+          level: 'info',
+          message: `Conectado à loja: ${storeName}`
         })
-        const store = tokenManager.getStore()
-        state.setConnection(true, store?.name ?? 'Loja conectada', store?.id ?? null)
-        state.setStatus('green', 'Conectado e pronto pra imprimir.')
-        heartbeat.start()
-        await queueLoop.start()
-        wsClient.start()
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
+        const nome = acc.storeName || 'loja salva'
+        if (acc.storeId) {
+          state.upsertStore({
+            storeId: acc.storeId,
+            storeName: nome,
+            status: 'red',
+            statusMessage: 'Sem conexão — tentando de novo no próximo ciclo.'
+          })
+        }
         state.pushLog({
           time: formatLogTime(),
           level: 'warn',
-          message: `Reconexão silenciosa falhou: ${msg}`
+          message: `Reconexão silenciosa falhou (${nome}): ${msg}`
         })
       }
     }
@@ -490,10 +467,8 @@ if (!gotLock) {
 
   app.on('before-quit', async (event) => {
     isQuitting = true
-    const loop = queueLoop
-    queueLoop?.stop()
-    heartbeat?.stop()
-    wsClient?.stop()
+    const live = [...connections.values()]
+    for (const conn of live) conn.stop()
     if (pruneTimer) {
       clearInterval(pruneTimer)
       pruneTimer = null
@@ -504,13 +479,19 @@ if (!gotLock) {
     }
     // Se tinha um claim em vôo, tenta soltar best-effort (2s max) pro item
     // voltar pra fila do servidor antes do lease expirar.
-    const needsRelease = loop?.getInFlightClaimId() != null
+    const needsRelease = live.some((c) => c.getInFlightClaimId() != null)
     if (needsRelease || mock) {
       event.preventDefault()
       const h = mock
       mock = null
-      const shutdownTasks: Promise<void>[] = []
-      if (loop) shutdownTasks.push(loop.releaseInFlightBestEffort(2_000))
+      // 2s no total pra TODAS as lojas — o shutdown não pode esticar por ter
+      // duas conexões. Cada release é best-effort e falha calado.
+      const shutdownTasks: Promise<void>[] = [
+        Promise.race([
+          Promise.allSettled(live.map((c) => c.releaseInFlight().catch(() => {}))).then(() => {}),
+          new Promise<void>((r) => setTimeout(r, 2_000))
+        ])
+      ]
       if (h) shutdownTasks.push(h.stop().catch(() => {}))
       await Promise.allSettled(shutdownTasks)
       closeDb()

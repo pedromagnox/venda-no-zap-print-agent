@@ -99,6 +99,8 @@ function quarantineCorruptDb(reason: unknown): void {
 }
 
 function applySchema(db: Database.Database): void {
+  addColumnIfMissing(db, 'claimed_items', 'store_id', 'TEXT')
+  addColumnIfMissing(db, 'telemetry_buffer', 'store_id', 'TEXT')
   db.exec(`
     CREATE TABLE IF NOT EXISTS claimed_items (
       id TEXT PRIMARY KEY,
@@ -109,7 +111,8 @@ function applySchema(db: Database.Database): void {
       claimed_at INTEGER NOT NULL,
       lease_expires_at INTEGER,
       attempts INTEGER NOT NULL DEFAULT 0,
-      last_error TEXT
+      last_error TEXT,
+      store_id TEXT
     );
 
     -- v1.5: text_data armazena o cupom ASCII pro modo compatibilidade.
@@ -123,7 +126,8 @@ function applySchema(db: Database.Database): void {
       payload TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       attempts INTEGER NOT NULL DEFAULT 0,
-      last_error TEXT
+      last_error TEXT,
+      store_id TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_telemetry_created_at
@@ -158,4 +162,28 @@ function applySchema(db: Database.Database): void {
   // ALTER COLUMN — mas como NOT NULL só rejeita NULL explícito no INSERT,
   // o workaround é gravar string vazia ("") em bytes_b64 quando a row é
   // text-only (ver LocalQueue.save). Sem migração de esquema.
+}
+
+// v1.11.0: multi-loja. `store_id` diz de qual loja é a linha — sem isso, o ack
+// de um pedido iria pro endpoint da loja errada e a telemetria seria
+// atribuída a quem drenou primeiro. NULL = gravado antes da atualização, e
+// pertence à primeira loja (a única que existia).
+//
+// SQLite não tem ADD COLUMN IF NOT EXISTS: lê o pragma antes de tentar. A
+// tabela pode ainda não existir no primeiro boot — o CREATE logo abaixo cobre,
+// e aí a coluna já nasce junto.
+function addColumnIfMissing(
+  db: Database.Database,
+  table: string,
+  column: string,
+  type: string
+): void {
+  try {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+    if (cols.length === 0) return
+    if (cols.some((c) => c.name === column)) return
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
+  } catch {
+    /* best-effort: schema novo já nasce com a coluna */
+  }
 }

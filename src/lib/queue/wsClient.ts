@@ -1,6 +1,6 @@
 import WebSocket from 'ws'
 import type { TokenManager } from '@lib/auth/tokenManager'
-import type { AgentState } from '@main/agentState'
+import type { StoreScopedState } from '@main/agentState'
 import { formatLogTime } from '@shared/logTime'
 
 // Cliente WebSocket do v1.0.0 ("campainha"). Conecta no Worker
@@ -16,7 +16,7 @@ import { formatLogTime } from '@shared/logTime'
 export type WsClientDeps = {
   url: string
   tokens: TokenManager
-  state: AgentState
+  state: StoreScopedState
   onJob: () => void
   onConnected: () => void
   onDisconnected: () => void

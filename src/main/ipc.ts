@@ -1,7 +1,5 @@
 import { ipcMain, clipboard, type BrowserWindow } from 'electron'
 import type { AgentState } from './agentState'
-import type { TokenManager } from '@lib/auth/tokenManager'
-import type { PrintAgentEndpoints } from '@lib/api/endpoints'
 import type { DeviceFingerprint } from '@lib/auth/device'
 import {
   makePrinter,
@@ -15,21 +13,20 @@ import type { DiscoveredSpoolerPrinter } from '@lib/printer'
 import { writeJsonFile } from '@lib/storage/jsonStore'
 import { formatLogTime } from '@shared/logTime'
 import { applyAutoStart } from './autoStart'
-import type { QueueLoop } from '@lib/queue/queueLoop'
-import type { Heartbeat } from '@lib/telemetry/heartbeat'
-import type { TelemetryService } from '@lib/telemetry/service'
+import type { StoreConnection } from './storeConnection'
 import { randomUUID } from 'node:crypto'
 import type { AgentSnapshot, PrinterConfig, Preferences, PrinterType, PrintModeSelection } from '@shared/types'
 
 export type IpcDeps = {
   state: AgentState
-  tokens: TokenManager
-  endpoints: PrintAgentEndpoints
   device: DeviceFingerprint
   appVersion: string
-  queueLoop: QueueLoop
-  heartbeat: Heartbeat
-  telemetry: TelemetryService
+  /** v1.11.0: conexões vivas, uma por loja. */
+  connections: Map<string, StoreConnection>
+  connectStore: (refreshToken: string) => Promise<{ storeId: string; storeName: string }>
+  disconnectStore: (storeId: string) => Promise<void>
+  /** A impressora é uma só: teste também passa pelo mutex das lojas. */
+  withPrinter: <T>(fn: () => Promise<T>) => Promise<T>
 }
 
 export type ConnectResult =
@@ -115,7 +112,11 @@ function printerContext(config: PrinterConfig): {
 }
 
 export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null): void {
-  const { state, tokens, endpoints, device, appVersion, queueLoop, heartbeat, telemetry } = deps
+  const { state, device, appVersion, connections, connectStore, disconnectStore, withPrinter } =
+    deps
+  // Teste de impressão e cupom-amostra são da MÁQUINA, não de uma loja — mas
+  // o cupom-amostra vem do servidor, então usamos a primeira loja conectada.
+  const anyConnection = (): StoreConnection | null => connections.values().next().value ?? null
 
   ipcMain.handle('agent:getSnapshot', (): AgentSnapshot => state.get())
 
@@ -140,37 +141,39 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
     if (typeof refreshToken !== 'string' || refreshToken.trim().length < 4) {
       return { ok: false, error: 'Token inválido — cole o token gerado no painel da loja.' }
     }
-    await tokens.setRefreshToken(refreshToken.trim())
     try {
-      await endpoints.ping({
-        agentInstallId: device.agentInstallId,
-        hostname: device.hostname,
-        machineIdHash: device.machineIdHash,
-        agentVersion: appVersion
+      // v1.11.0: ADICIONA uma loja em vez de substituir a anterior. Colar o
+      // token de uma loja já conectada apenas renova aquela entrada.
+      const { storeName } = await connectStore(refreshToken.trim())
+      state.pushLog({
+        time: nowLogTime(),
+        level: 'info',
+        message: `Conectado à loja: ${storeName}`
       })
-      const store = tokens.getStore()
-      const storeName = store?.name ?? 'Loja conectada'
-      const storeId = store?.id ?? null
-      state.setConnection(true, storeName, storeId)
-      state.setStatus('green', 'Conectado e pronto pra imprimir.')
-      state.pushLog({ time: nowLogTime(), level: 'info', message: `Conectado à loja: ${storeName}` })
-      heartbeat.start()
-      await queueLoop.start()
       return { ok: true, storeName }
     } catch (err) {
-      await tokens.clear()
-      state.setConnection(false, null, null)
-      state.setStatus('red', 'Falha na conexão — verifique o token.')
       const msg = err instanceof Error ? err.message : String(err)
-      state.pushLog({ time: nowLogTime(), level: 'error', message: `Falha ao conectar: ${msg}` })
+      state.pushLog({
+        time: nowLogTime(),
+        level: 'error',
+        message: `Falha ao conectar: ${msg}`
+      })
       return { ok: false, error: msg }
     }
   })
 
+  /** Desconecta UMA loja — o botão de cada linha da lista. */
+  ipcMain.handle('agent:disconnectStore', async (_e, storeId: string): Promise<void> => {
+    const name = state.get().stores.find((s) => s.storeId === storeId)?.storeName ?? 'loja'
+    await disconnectStore(storeId)
+    state.pushLog({ time: nowLogTime(), level: 'info', message: `Loja desconectada: ${name}` })
+    if (state.get().stores.length === 0) {
+      state.setStatus('yellow', 'Desconectado. Cole um token pra conectar uma loja.')
+    }
+  })
+
   ipcMain.handle('agent:disconnect', async () => {
-    queueLoop.stop()
-    heartbeat.stop()
-    await tokens.clear()
+    for (const storeId of [...connections.keys()]) await disconnectStore(storeId)
     state.setConnection(false, null, null)
     state.setStatus('yellow', 'Desconectado. Cole um novo token pra reconectar.')
   })
@@ -224,7 +227,7 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
   ipcMain.handle('agent:testPrint', async (): Promise<TestPrintResult> => {
     const config = state.get().printer
     const startedAt = Date.now()
-    telemetry.emit({ type: 'print_attempt', ...printerContext(config) })
+    anyConnection()?.telemetry.emit({ type: 'print_attempt', ...printerContext(config) })
     // Re-detecta o modo na hora do teste — garante que a flag refletida no
     // state está fresca e que o teste usa o caminho certo (TEXT vs RAW).
     const detected = await detectPrintMode(config)
@@ -232,14 +235,16 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
     logDetectionResult(state, detected, 'testPrint')
     try {
       const printer = makePrinter(config)
-      try {
-        const testData: Buffer | string = detected.mode === 'compatibility'
-          ? buildTestPageText()
-          : buildTestPage()
-        await printer.print(testData, 'Teste - Venda no Zap')
-      } finally {
-        await printer.close()
-      }
+      await withPrinter(async () => {
+        try {
+          const testData: Buffer | string = detected.mode === 'compatibility'
+            ? buildTestPageText()
+            : buildTestPage()
+          await printer.print(testData, 'Teste - Venda no Zap')
+        } finally {
+          await printer.close()
+        }
+      })
       const durationMs = Date.now() - startedAt
       state.pushHistory({
         id: `test_${randomUUID().slice(0, 8)}`,
@@ -253,7 +258,7 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
         message: `Teste impresso em ${printer.describe()} (${durationMs}ms)`
       })
       state.setStatus('green', 'Teste impresso com sucesso.')
-      telemetry.emit({ type: 'print_success', durationMs, ...printerContext(config) })
+      anyConnection()?.telemetry.emit({ type: 'print_success', durationMs, ...printerContext(config) })
       return { ok: true }
     } catch (err) {
       const code = err instanceof PrinterError ? err.code : 'IO_ERROR'
@@ -272,7 +277,7 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
         message: `Teste falhou (${code}): ${msg}${hint ? '. ' + hint : ''}`
       })
       state.setStatus('red', `Erro na impressora: ${code}`)
-      telemetry.emit({
+      anyConnection()?.telemetry.emit({
         type: 'print_failure',
         durationMs,
         errorCode: code,
@@ -292,14 +297,18 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
       const config = state.get().printer
       const startedAt = Date.now()
       try {
-        const test = await endpoints.testReceipt(mode, config.paperWidth)
+        const conn = anyConnection()
+        if (!conn) throw new Error('Nenhuma loja conectada — conecte uma loja antes de testar.')
+        const test = await conn.endpoints.testReceipt(mode, config.paperWidth)
         const bytes = Buffer.from(test.bytesB64, 'base64')
         const printer = makePrinter(config)
-        try {
-          await printer.print(bytes, 'Teste de modo - Venda no Zap')
-        } finally {
-          await printer.close()
-        }
+        await withPrinter(async () => {
+          try {
+            await printer.print(bytes, 'Teste de modo - Venda no Zap')
+          } finally {
+            await printer.close()
+          }
+        })
         state.pushLog({
           time: nowLogTime(),
           level: 'info',

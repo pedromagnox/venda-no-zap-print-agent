@@ -5,7 +5,7 @@ import type { LeaseItem } from '@lib/api/types'
 import { detectPrintMode, makePrinter, PrinterError, type PrinterErrorCode } from '@lib/printer'
 import { sanitize } from '@lib/telemetry/sanitize'
 import type { TelemetryService } from '@lib/telemetry/service'
-import type { AgentState } from '@main/agentState'
+import type { StoreScopedState } from '@main/agentState'
 import type { PrinterConfig, PrinterType, PrintMode, PrintModeSelection } from '@shared/types'
 import { formatLogTime } from '@shared/logTime'
 import type { LocalQueue, ClaimedRow } from './localQueue'
@@ -13,10 +13,13 @@ import { normalizePaperWidth } from './paperWidth'
 
 export type QueueLoopDeps = {
   endpoints: PrintAgentEndpoints
-  state: AgentState
+  state: StoreScopedState
   localQueue: LocalQueue
   telemetry: TelemetryService
   getPrinterConfig: () => PrinterConfig
+  /** v1.11.0: serializa o acesso à impressora entre as lojas — ela é UMA só,
+   *  e dois cupons entrelaçados sairiam embaralhados no papel. */
+  withPrinter?: <T>(fn: () => Promise<T>) => Promise<T>
   intervalMs: number
   maxBackoffMs?: number
 }
@@ -351,12 +354,15 @@ export class QueueLoop {
       // v1.10.4: claim-lease entrega os 3 modos como bytes ESC/POS prontos —
       // sempre RAW. O caminho TEXT foi aposentado pra impressão de cupom.
       const data = Buffer.from(row.bytesB64, 'base64')
-      const printer = makePrinter(printerConfig)
-      try {
-        await printer.print(data, `Pedido #${orderNumber} - Venda no Zap`)
-      } finally {
-        await printer.close()
-      }
+      const run = this.deps.withPrinter ?? (<T>(fn: () => Promise<T>): Promise<T> => fn())
+      await run(async () => {
+        const printer = makePrinter(printerConfig)
+        try {
+          await printer.print(data, `Pedido #${orderNumber} - Venda no Zap`)
+        } finally {
+          await printer.close()
+        }
+      })
       try {
         await this.deps.endpoints.ack(id)
       } catch (ackErr) {

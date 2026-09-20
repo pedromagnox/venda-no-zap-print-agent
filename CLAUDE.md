@@ -9,7 +9,7 @@ Agente desktop (Electron, Windows-first) que roda na máquina do lojista, faz po
 - **Runtime**: Electron 31 (Node embarcado), single-instance, bandeja sempre viva
 - **Build**: electron-vite + electron-builder (NSIS one-click pra Windows x64)
 - **Renderer**: React 18 + Vite (UI compacta, janela fixa 420×620, não-resizable)
-- **Persistência local**: better-sqlite3 (WAL) em `userData/agent.db` + safeStorage (refresh token cifrado)
+- **Persistência local**: better-sqlite3 (WAL) em `userData/agent.db` + safeStorage (lista de lojas cifrada)
 - **Impressão**: `@thesusheer/electron-printer` (spooler Windows) + socket TCP 9100 (rede)
 - **Sem auto-update**: lojista baixa o `.exe` novo e instala por cima.
 
@@ -59,7 +59,7 @@ npm run fake-printer      # sobe printer ESC/POS fake em TCP local pra teste
 
 1. **Boot**: requisita single-instance lock; se já tem outra instância, manda foco e sai.
 2. **DB**: abre `agent.db` com recovery automática (renomeia `.corrupt.<ts>` se WAL/SHM estiver corrompido por kill abrupto).
-3. **Auth**: se há refresh token em safeStorage → tenta `POST /api/print-agent/ping`. Se ok, vira **verde**.
+3. **Auth**: lê a lista de lojas do safeStorage (`accounts`) e conecta **cada uma**. Se ok, vira **verde**.
 4. **Polling**: `QueueLoop` faz `GET /api/print-queue` a cada `pollIntervalMs` (default 5s).
 5. **Imprimir um item**:
    - `POST /api/print-queue/:id/claim` → recebe `payload.bytes` (base64) + `paperWidth` + `leaseExpiresAt`.
@@ -98,6 +98,18 @@ Rotas em [`artifacts/api-server/src/routes/print-agent.ts`](../Venda-no-Zap/arti
 | `PRINT_AGENT_HEARTBEAT_MS` | `30000` | `30000` | Intervalo do heartbeat |
 
 Dotenv não é carregado automaticamente; setar via `--env-file=.env` ou ambiente.
+
+## Multi-loja (v1.11.0)
+
+Uma instalação atende **N lojas** — o caso do lojista com duas lojas e uma impressora só.
+
+- **Por loja** (`main/storeConnection.ts`): token, endpoints, telemetria, heartbeat, fila e WebSocket. `index.ts` guarda um `Map<storeId, StoreConnection>`.
+- **Da máquina** (um só): impressora, preferências, `agent.db`, logs, bandeja.
+- **`printerMutex`** serializa o papel entre as lojas — a impressora é uma só e dois cupons entrelaçados sairiam embaralhados. Vale também pros testes do wizard.
+- **`claimed_items` e `telemetry_buffer` têm `store_id`**. Sem isso o ack iria pro endpoint da loja errada e a telemetria seria atribuída a quem drenasse primeiro. `store_id NULL` = linha de antes da atualização; a **primeira** loja da lista as adota (`adoptsLegacyRows`).
+- **Estado**: `snapshot.stores[]` tem uma entrada por loja; `connection` espelha a primeira (é o que o gate de onboarding usa). A bandeja mostra o **pior** status. Cada loop escreve via `state.scopedFor(storeId)` — sem isso o `setStatus` de uma loja apagaria o da outra.
+- **Servidor**: a PK de `print_agent_devices` é **(store_id, device_id)** desde 20/09/2026. Era só `device_id` (derivado da máquina), então a mesma máquina em duas lojas tinha uma linha que pulava de loja a cada refresh.
+- Colar o token de uma loja **já conectada** atualiza aquela entrada em vez de criar outra — senão dois loops claimariam o mesmo pedido.
 
 ## Convenções e armadilhas
 

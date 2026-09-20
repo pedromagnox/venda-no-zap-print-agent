@@ -29,6 +29,10 @@ const api = {
 
   disconnect: (): Promise<void> => ipcRenderer.invoke('agent:disconnect'),
 
+  /** v1.11.0: desconecta UMA loja da lista (o X de cada linha). */
+  disconnectStore: (storeId: string): Promise<void> =>
+    ipcRenderer.invoke('agent:disconnectStore', storeId),
+
   setPrinter: (printer: PrinterConfig): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:setPrinter', printer),
 
