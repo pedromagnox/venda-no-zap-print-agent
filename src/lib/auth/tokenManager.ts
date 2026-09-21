@@ -1,7 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { deleteSecure, getSecure, setSecure } from '../storage/safeStorage'
 
-const REFRESH_TOKEN_KEY = 'refresh_token'
 
 export type ExchangeResult = {
   accessToken: string
@@ -24,17 +22,24 @@ export class TokenManager extends EventEmitter {
   private expiresAt = 0
   private refreshPromise: Promise<string> | null = null
   private lastStore: ExchangeResult['store'] = undefined
+  private refreshToken: string | null = null
 
   constructor(private readonly exchange: ExchangeFn) {
     super()
   }
 
+  // ⚠️ v1.11.0: o refresh token vive em MEMÓRIA, não no safeStorage.
+  // Antes cada TokenManager lia e escrevia a MESMA chave global
+  // ('refresh_token'); com duas lojas, a segunda sobrescrevia a primeira e, no
+  // refresh seguinte (~15min), as duas conexões passavam a usar o mesmo token —
+  // dois loops claimando os pedidos da MESMA loja, e a outra parava de
+  // imprimir. Quem persiste (a lista cifrada de lojas) é o `accountsStore`.
   async hasRefreshToken(): Promise<boolean> {
-    return (await getSecure(REFRESH_TOKEN_KEY)) !== null
+    return this.refreshToken !== null
   }
 
   async setRefreshToken(token: string): Promise<void> {
-    await setSecure(REFRESH_TOKEN_KEY, token)
+    this.refreshToken = token
     this.accessToken = null
     this.expiresAt = 0
   }
@@ -43,7 +48,7 @@ export class TokenManager extends EventEmitter {
     this.accessToken = null
     this.expiresAt = 0
     this.lastStore = undefined
-    await deleteSecure(REFRESH_TOKEN_KEY)
+    this.refreshToken = null
   }
 
   invalidate(): void {
@@ -69,7 +74,7 @@ export class TokenManager extends EventEmitter {
   }
 
   private async doRefresh(): Promise<string> {
-    const rt = await getSecure(REFRESH_TOKEN_KEY)
+    const rt = this.refreshToken
     if (!rt) throw new Error('NOT_CONNECTED')
     try {
       const result = await this.exchange(rt)

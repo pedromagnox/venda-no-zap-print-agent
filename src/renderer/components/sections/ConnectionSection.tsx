@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { AgentStatus, StoreConnectionInfo } from '@shared/types'
 
 type ConnectionSectionProps = {
@@ -70,12 +70,23 @@ export function ConnectionSection({
   // ao clicar em "Adicionar outra loja". Mantém a tela enxuta no dia a dia,
   // que é o estado normal.
   const [adding, setAdding] = useState(false)
+  // Fecha o formulário assim que a loja entra na lista — senão fica um campo
+  // vazio aberto embaixo e o lojista não sabe se conectou.
+  useEffect(() => {
+    setAdding(false)
+  }, [stores.length])
 
   if (stores.length > 0) {
     return (
       <section className="section section-compact">
-        {stores.map((s) => (
-          <div className="connection-compact" key={s.storeId}>
+        {stores.map((s, i) => (
+          <div
+            className="connection-compact"
+            key={s.storeId}
+            // Com 2+ lojas as linhas precisam de separação — sem isso viram um
+            // bloco só e não dá pra dizer qual "Desconectar" é de quem.
+            style={i > 0 ? { borderTop: '1px solid var(--color-border, #eee)', paddingTop: 8 } : undefined}
+          >
             <div className="connection-compact-info">
               <span
                 className={`status-dot status-${s.status}`}
@@ -83,11 +94,14 @@ export function ConnectionSection({
                 title={s.statusMessage}
               />
               <div>
-                <div className="connection-compact-label">
-                  {/* Com uma loja só, o rótulo global (Conectado/Erro) continua
-                      valendo; com várias, cada linha mostra o estado dela. */}
-                  {stores.length === 1 ? statusLabel : s.statusMessage}
-                </div>
+                {/* Loja só: mantém o rótulo global ("Tudo certo"). Várias: o
+                    nome manda, e o texto de estado só aparece quando há
+                    problema — repetir "conectado" em toda linha é ruído. */}
+                {(stores.length === 1 || s.status !== 'green') && (
+                  <div className="connection-compact-label">
+                    {stores.length === 1 ? statusLabel : s.statusMessage}
+                  </div>
+                )}
                 <div className="connection-compact-store">{s.storeName}</div>
               </div>
             </div>
