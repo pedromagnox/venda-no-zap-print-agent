@@ -1,6 +1,6 @@
 {
   "name": "venda-no-zap-print-agent",
-  "version": "1.11.1",
+  "version": "1.11.1-win8",
   "private": true,
   "description": "Agente de impressão local para pedidos do Venda no Zap em impressoras térmicas.",
   "author": "Venda no Zap",
@@ -17,16 +17,19 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "dist": "electron-vite build && electron-builder",
     "dist:win": "electron-vite build && electron-builder --win",
- "dist:win:vps": "node scripts/fetch-win-prebuilds.mjs && npm run dist:win"
+    "dist:win:vps": "node scripts/fetch-win-prebuilds.mjs && npm run dist:win",
+    "dist:win8:x64": "node scripts/fetch-win-prebuilds.mjs x64 && electron-vite build && electron-builder --win --x64",
+    "dist:win8:ia32": "node scripts/fetch-win-prebuilds.mjs ia32 && electron-vite build && electron-builder --win --ia32"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.2.8",
     "@fontsource/outfit": "^5.2.8",
     "@thesusheer/electron-printer": "^2.0.4",
     "async-mutex": "^0.5.0",
-    "better-sqlite3": "^11.10.0",
+    "better-sqlite3": "9.6.0",
     "node-machine-id": "^1.1.12",
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "undici": "5.29.0"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.2",
@@ -37,7 +40,7 @@
     "@types/react-dom": "^18.3.0",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.3.1",
-    "electron": "^31.3.0",
+    "electron": "22.3.27",
     "electron-builder": "^25.0.5",
     "electron-vite": "^2.3.0",
     "pngjs": "^7.0.0",

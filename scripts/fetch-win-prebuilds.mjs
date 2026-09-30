@@ -16,11 +16,15 @@ const require = createRequire(import.meta.url)
 const electronVersion = require('electron/package.json').version
 const sqliteDir = path.dirname(require.resolve('better-sqlite3/package.json'))
 const bin = path.resolve('node_modules', '.bin', 'prebuild-install')
+// Build legado: sai em 64 E 32 bits (PC com Windows 8.1 de 32 bits existe).
+// Cada arquitetura precisa do .node dela — o electron-builder está com
+// npmRebuild:false, então empacota o que estiver em build/Release.
+const arch = process.argv[2] === 'ia32' ? 'ia32' : 'x64'
 
-console.log(`better-sqlite3: baixando prebuild win32-x64 pro Electron ${electronVersion}...`)
+console.log(`better-sqlite3: baixando prebuild win32-${arch} pro Electron ${electronVersion}...`)
 execFileSync(
   bin,
-  ['--platform=win32', '--arch=x64', '--runtime=electron', `--target=${electronVersion}`],
+  ['--platform=win32', `--arch=${arch}`, '--runtime=electron', `--target=${electronVersion}`],
   { cwd: sqliteDir, stdio: 'inherit' }
 )
-console.log('ok: build/Release/better_sqlite3.node é win32-x64')
+console.log(`ok: build/Release/better_sqlite3.node é win32-${arch}`)

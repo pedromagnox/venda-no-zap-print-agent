@@ -1,3 +1,11 @@
+/*
+ * BUILD LEGADO (Windows 7/8/8.1, Electron 22 = Chromium 108): color-mix() só
+ * existe a partir do Chromium 111, então aqui as cores misturadas são FIXAS
+ * (calculadas a partir de tokens.css). Não dá pra deixar o color-mix com um
+ * fallback antes: quando o valor contém var(), o navegador aceita a declaração
+ * na leitura e só a invalida no cálculo — e aí cai no valor INICIAL
+ * (transparente), não na declaração anterior. Medido no print do Chromium 108.
+ */
 @import '@fontsource/dm-sans/400.css';
 @import '@fontsource/dm-sans/500.css';
 @import '@fontsource/dm-sans/600.css';
@@ -151,7 +159,7 @@ button {
   border-radius: var(--radius-full);
   background: var(--text-muted);
   flex-shrink: 0;
-  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 12%, transparent);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.06);
 }
 .status-dot.status-green {
   background: var(--color-success);
@@ -310,9 +318,9 @@ button {
 }
 
 .connect-screen-error {
-  background: color-mix(in srgb, var(--color-error) 12%, transparent);
+  background: rgba(239, 68, 68, 0.12);
   color: var(--color-error);
-  border: 1px solid color-mix(in srgb, var(--color-error) 40%, transparent);
+  border: 1px solid rgba(239, 68, 68, 0.4);
   border-radius: var(--radius-sm, 6px);
   padding: var(--space-2) var(--space-3);
   font-size: 0.78rem;
@@ -415,7 +423,7 @@ button {
 .input:focus,
 .select:focus {
   border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 20%, transparent);
+  box-shadow: 0 0 0 3px rgba(244, 117, 39, 0.2);
 }
 
 .input::placeholder {
@@ -463,7 +471,7 @@ button {
   white-space: nowrap;
 }
 .recommended-pill {
-  background: color-mix(in srgb, var(--color-success) 16%, transparent);
+  background: rgba(67, 160, 71, 0.16);
   color: var(--color-success);
 }
 .advanced-pill {
@@ -492,7 +500,7 @@ button {
 .radio-card.active {
   border-color: var(--brand-primary);
   color: var(--brand-primary);
-  background: color-mix(in srgb, var(--brand-primary) 8%, var(--bg-elevated));
+  background: #fef4ee;
   font-weight: 600;
 }
 
@@ -517,7 +525,7 @@ button {
   outline: none;
 }
 .switch:focus-visible {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 35%, transparent);
+  box-shadow: 0 0 0 3px rgba(244, 117, 39, 0.35);
 }
 .switch::after {
   content: '';
@@ -593,7 +601,7 @@ button {
   border-color: var(--brand-primary);
 }
 .btn-primary:hover {
-  background: color-mix(in srgb, var(--brand-primary) 90%, black);
+  background: #dc6923;
 }
 
 .btn-ghost {
@@ -602,7 +610,7 @@ button {
   color: var(--brand-primary);
 }
 .btn-ghost:hover {
-  background: color-mix(in srgb, var(--brand-primary) 8%, transparent);
+  background: rgba(244, 117, 39, 0.08);
 }
 
 .btn-block {

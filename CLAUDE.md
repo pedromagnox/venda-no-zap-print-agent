@@ -1,5 +1,30 @@
 # Venda no Zap Print Agent
 
+> ## ⚠️ BRANCH `legacy/win8` — build pra Windows 7 / 8 / 8.1
+>
+> O Electron 23+ não roda no Windows 7/8/8.1 ("Electron 23 no longer supports
+> Windows 7/8/8.1", blog oficial). Este branch é o `main` com o mínimo pra rodar
+> no **Electron 22.3.27** (último da série 22):
+>
+> - `electron` 22.3.27, `better-sqlite3` **9.6.0** (a última com binário pro ABI
+>   110 do Electron 22, em x64 e ia32), `undici` 5.29.0 (fetch pro Node 16).
+> - `src/main/polyfills.ts` — o Node 16.17 do Electron 22 NÃO tem `fetch`/
+>   `Headers` globais; sem isso o app abre e quebra ao conectar. Primeiro import.
+> - `app.disableHardwareAcceleration()` — PC antigo com driver de vídeo velho
+>   abre a janela em branco/preta no Chromium.
+> - `styles.css` com cores FIXAS no lugar de `color-mix()` (Chromium 108 não
+>   tem; e fallback antes de declaração com `var()` NÃO funciona — cai no valor
+>   inicial). Ver o comentário no topo do arquivo.
+> - Sai em 64 e 32 bits: `npm run dist:win8:x64` / `npm run dist:win8:ia32`.
+>   Versão com sufixo `-win8` (o servidor só guarda/exibe, não faz parse).
+> - Publicar SEMPRE como **prerelease** (`gh release create ... --prerelease`):
+>   o Worker do painel usa `/releases/latest`, que ignora prereleases. Release
+>   normal daqui mandaria o build legado pra todo mundo.
+>
+> Pra atualizar: `git merge main` neste branch, conferir os 4 pontos acima,
+> buildar os dois e publicar como prerelease `vX.Y.Z-win8`.
+
+
 Agente desktop (Electron, Windows-first) que roda na máquina do lojista, faz polling da fila de impressão da API do Venda no Zap e imprime os pedidos em impressora térmica ESC/POS (rede ou spooler do Windows). Roda em bandeja, com auto-start, fila local resiliente e telemetria.
 
 > Projeto irmão da API/SPA do [Venda no Zap](../Venda-no-Zap/CLAUDE.md). O agente é um cliente puro — toda a fonte da verdade fica no backend.

@@ -1,3 +1,5 @@
+// Build legado: TEM que ser o primeiro import — ver polyfills.ts.
+import './polyfills'
 import { app, BrowserWindow, powerMonitor, shell } from 'electron'
 import { join } from 'node:path'
 import dns from 'node:dns'
@@ -34,6 +36,12 @@ import { createTray, type TrayController } from './tray'
 import { applyAutoStart, startedHidden } from './autoStart'
 
 const isDev = !app.isPackaged
+
+// Build legado: PCs com Windows 7/8.1 costumam ter driver de vídeo antigo, e o
+// sintoma clássico do Chromium nesses casos é a janela abrir em branco/preta.
+// A interface é um formulário simples — renderizar por software não custa nada
+// e tira essa variável da mesa. Tem que ser chamado ANTES do app ficar pronto.
+app.disableHardwareAcceleration()
 
 let mainWindow: BrowserWindow | null = null
 let tray: TrayController | null = null

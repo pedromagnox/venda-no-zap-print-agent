@@ -41,7 +41,6 @@ files:
   - "!node_modules/better-sqlite3/binding.gyp"
 
   # @thesusheer/electron-printer: .node de outra arch + source/build.
-  - "!node_modules/@thesusheer/electron-printer/lib/electron-printer-win32-ia32.node"
   - "!node_modules/@thesusheer/electron-printer/src/**"
   - "!node_modules/@thesusheer/electron-printer/test/**"
   - "!node_modules/@thesusheer/electron-printer/tools/**"
@@ -54,6 +53,7 @@ asarUnpack:
   - "node_modules/better-sqlite3/build/Release/*.node"
   - "node_modules/better-sqlite3/lib/**"
   - "node_modules/@thesusheer/electron-printer/lib/electron-printer-win32-x64.node"
+  - "node_modules/@thesusheer/electron-printer/lib/electron-printer-win32-ia32.node"
   - "node_modules/@thesusheer/electron-printer/lib/electron-printer.node"
 
 extraResources:
@@ -65,14 +65,14 @@ extraResources:
 win:
   icon: build/icon.png
   executableName: Venda no Zap Print Agent
+  # Build legado: a arquitetura vem da linha de comando (--x64 / --ia32) —
+  # arch fixa aqui faria o electron-builder ignorar o --ia32.
   target:
-    - target: nsis
-      arch:
-        - x64
+    - nsis
   # ASCII clean (sem espaços) pra evitar URL encoding feio em GitHub Releases.
   # productName "Venda no Zap Print Agent" geraria nome com %20 — preferimos
   # nome direto pra que URLs de download funcionem clean.
-  artifactName: VendaNoZap-PrintAgent-Setup-${version}.${ext}
+  artifactName: VendaNoZap-PrintAgent-Setup-${version}-${arch}.${ext}
   # Quando você assinar:
   #   - Azure Trusted Signing: adicione `azureSignOptions:` aqui
   #   - Certificado tradicional: `certificateFile` + `certificatePassword`
