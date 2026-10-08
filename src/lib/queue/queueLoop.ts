@@ -2,7 +2,13 @@ import { Mutex } from 'async-mutex'
 import { randomUUID } from 'node:crypto'
 import type { PrintAgentEndpoints } from '@lib/api/endpoints'
 import type { LeaseItem } from '@lib/api/types'
-import { detectPrintMode, makePrinter, PrinterError, type PrinterErrorCode } from '@lib/printer'
+import {
+  detectPrintMode,
+  hasPrinterTarget,
+  makePrinter,
+  PrinterError,
+  type PrinterErrorCode
+} from '@lib/printer'
 import { sanitize } from '@lib/telemetry/sanitize'
 import type { TelemetryService } from '@lib/telemetry/service'
 import type { StoreScopedState } from '@main/agentState'
@@ -66,6 +72,8 @@ export class QueueLoop {
   /** Lease do claim-lease é 2min server-side. Valor só informativo no
    *  localQueue — o before-quit usa inFlightClaimId, não esse campo. */
   private static readonly LEASE_MS = 120_000
+  /** v1.11.2: já avisou "sem impressora escolhida" (evita repetir a cada tick). */
+  private semImpressoraAvisado = false
   /** Último modo logado — evita repetir "Modo de impressão: X" a cada tick. */
   private lastLoggedMode: PrintModeSelection | null = null
 
@@ -179,6 +187,31 @@ export class QueueLoop {
     this.nextTickIsReconnectCatchup = false
     try {
       const config = this.deps.getPrinterConfig()
+      // v1.11.2: SEM IMPRESSORA ESCOLHIDA, NÃO PEGA PEDIDO. Antes pegava, falhava
+      // com INVALID_CONFIG e gastava 1 das 3 tentativas: a Oxe passou 10 dias
+      // assim (55 falhas, painel dizendo "Online") e, na Renascer, o app do
+      // Windows sem impressora roubou o pedido do Android, que só imprimiu na 3ª
+      // e última tentativa. Os pedidos ficam na fila; ao escolher a impressora,
+      // o setPrinter dá um kick() e o loop pega na hora.
+      if (!hasPrinterTarget(config)) {
+        if (!this.semImpressoraAvisado) {
+          this.semImpressoraAvisado = true
+          this.deps.state.setStatus('yellow', 'Escolha a impressora para começar a imprimir.')
+          this.deps.state.pushLog({
+            time: nowLogTime(),
+            level: 'warn',
+            message: 'Nenhuma impressora escolhida — os pedidos esperam na fila até você escolher uma.'
+          })
+        }
+        this.ticking = false
+        this.kickPending = false
+        if (!this.paused) this.schedule(this.intervalMs)
+        return
+      }
+      if (this.semImpressoraAvisado) {
+        this.semImpressoraAvisado = false
+        this.deps.state.setStatus('green', 'Conectado e pronto pra imprimir.')
+      }
       const mode = await this.resolvePrintMode(config)
       const { items } = await this.deps.endpoints.claimLease(QueueLoop.CLAIM_MAX, mode)
       this.consecutiveListErrors = 0

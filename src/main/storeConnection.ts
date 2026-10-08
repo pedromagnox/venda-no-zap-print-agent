@@ -11,6 +11,7 @@ import { TelemetryService } from '@lib/telemetry/service'
 import { Heartbeat } from '@lib/telemetry/heartbeat'
 import { config } from '@lib/config'
 import type { PrinterConfig } from '@shared/types'
+import { hasPrinterTarget } from '@lib/printer'
 import { formatLogTime } from '@shared/logTime'
 import type { AgentState } from './agentState'
 
@@ -68,18 +69,22 @@ export class StoreConnection {
     const api = new ApiClient(this.tokens)
     this.endpoints = new PrintAgentEndpoints(api)
 
-    const buffer = new TelemetryBuffer(deps.db, storeId, deps.adoptsLegacyRows)
+    // Getters, não o id: a conexão nasce com storeId '' e só descobre a loja no
+    // authenticate(). Copiar o id aqui fazia tudo cair na loja ''.
+    const lojaAtual = (): string => this.storeId
+    const buffer = new TelemetryBuffer(deps.db, lojaAtual, deps.adoptsLegacyRows)
     this.telemetry = new TelemetryService(api, buffer, deps.device, deps.appVersion)
-    this.localQueue = new LocalQueue(deps.db, storeId, deps.adoptsLegacyRows)
+    this.localQueue = new LocalQueue(deps.db, lojaAtual, deps.adoptsLegacyRows)
 
-    const scoped = deps.state.scopedFor(storeId)
+    const scoped = deps.state.scopedFor(lojaAtual)
 
     this.heartbeat = new Heartbeat({
       endpoints: this.endpoints,
       device: deps.device,
       telemetry: this.telemetry,
       appVersion: deps.appVersion,
-      intervalMs: config.heartbeatIntervalMs
+      intervalMs: config.heartbeatIntervalMs,
+      getPrinterConfigured: () => hasPrinterTarget(deps.getPrinterConfig())
     })
 
     this.queueLoop = new QueueLoop({
@@ -175,6 +180,11 @@ export class StoreConnection {
     await this.queueLoop.start()
     this.wsClient.stop()
     this.wsClient.start()
+  }
+
+  /** Busca a fila agora — usado quando a impressora acabou de ser escolhida. */
+  kick(): void {
+    this.queueLoop.kick()
   }
 
   getInFlightClaimId(): string | null {

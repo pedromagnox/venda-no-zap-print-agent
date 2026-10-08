@@ -18,6 +18,8 @@ export type HeartbeatDeps = {
   telemetry: TelemetryService
   appVersion: string
   intervalMs: number
+  /** v1.11.2: o painel avisa quando o app está aberto sem impressora escolhida. */
+  getPrinterConfigured?: () => boolean
 }
 
 export class Heartbeat {
@@ -69,7 +71,10 @@ export class Heartbeat {
         hostname: this.deps.device.hostname,
         machineIdHash: this.deps.device.machineIdHash,
         agentVersion: this.deps.appVersion,
-        ...(hardwareInfo ? { hardwareInfo } : {})
+        ...(hardwareInfo ? { hardwareInfo } : {}),
+        ...(this.deps.getPrinterConfigured
+          ? { printerConfigured: this.deps.getPrinterConfigured() }
+          : {})
       })
       // Aproveita conexão verificada pra drenar buffer.
       await this.deps.telemetry.drainBuffer().catch(() => {})

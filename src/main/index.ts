@@ -1,4 +1,4 @@
-import { app, BrowserWindow, powerMonitor, shell } from 'electron'
+import { app, BrowserWindow, powerMonitor, screen, shell } from 'electron'
 import { join } from 'node:path'
 import dns from 'node:dns'
 import { config } from '@lib/config'
@@ -53,9 +53,14 @@ const PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000
 const POST_RESUME_DELAY_MS = 5_000
 
 function createWindow(): void {
+  // v1.11.2: altura limitada à área útil da tela. Com 620 px fixos e janela
+  // sem redimensionar, em notebook com tela pequena ou zoom do Windows a parte
+  // de baixo ficava fora da tela — inclusive o "Enviar logs ao suporte"
+  // (Renascer, 07/10). O corpo rola; o rodapé fica sempre visível.
+  const alturaUtil = screen.getPrimaryDisplay().workAreaSize.height
   mainWindow = new BrowserWindow({
     width: 420,
-    height: 620,
+    height: Math.min(620, alturaUtil),
     show: false,
     autoHideMenuBar: true,
     resizable: false,

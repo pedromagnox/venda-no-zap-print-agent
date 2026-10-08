@@ -27,7 +27,7 @@ export class TelemetryBuffer {
    *  Linhas NULL são de antes da atualização; quem as adota é a primeira loja. */
   constructor(
     private readonly db: Database.Database,
-    private readonly storeId = '',
+    private readonly lojaAtual: () => string = () => '',
     private readonly adoptsLegacyRows = false
   ) {
     this.stmtInsert = db.prepare(`
@@ -36,7 +36,7 @@ export class TelemetryBuffer {
     this.stmtPending = db.prepare(`
       SELECT id, payload, created_at AS createdAt, attempts, last_error AS lastError
       FROM telemetry_buffer
-      WHERE store_id = ? OR (? AND store_id IS NULL)
+      WHERE store_id = ? OR (? AND (store_id IS NULL OR store_id = ''))
       ORDER BY created_at ASC
       LIMIT ?
     `)
@@ -46,17 +46,17 @@ export class TelemetryBuffer {
     `)
     this.stmtPrune = db.prepare(`DELETE FROM telemetry_buffer WHERE created_at < ?`)
     this.stmtCount = db.prepare(
-      `SELECT COUNT(*) AS c FROM telemetry_buffer WHERE store_id = ? OR (? AND store_id IS NULL)`
+      `SELECT COUNT(*) AS c FROM telemetry_buffer WHERE store_id = ? OR (? AND (store_id IS NULL OR store_id = ''))`
     )
   }
 
   enqueue(event: TelemetryEvent): void {
-    this.stmtInsert.run(JSON.stringify(event), Date.now(), this.storeId)
+    this.stmtInsert.run(JSON.stringify(event), Date.now(), this.lojaAtual())
   }
 
   pending(limit = 50): BufferedEvent[] {
     const rows = this.stmtPending.all(
-      this.storeId,
+      this.lojaAtual(),
       this.adoptsLegacyRows ? 1 : 0,
       limit
     ) as Array<{
@@ -89,7 +89,7 @@ export class TelemetryBuffer {
   }
 
   count(): number {
-    const row = this.stmtCount.get(this.storeId, this.adoptsLegacyRows ? 1 : 0) as { c: number }
+    const row = this.stmtCount.get(this.lojaAtual(), this.adoptsLegacyRows ? 1 : 0) as { c: number }
     return row.c
   }
 }

@@ -103,13 +103,18 @@ export class AgentState extends EventEmitter {
     this.setStatus(worst.status, `${prefix}${worst.statusMessage}`)
   }
 
-  /** Visão do estado amarrada a uma loja. */
-  scopedFor(storeId: string): StoreScopedState {
+  /** Visão do estado amarrada a uma loja. Recebe a loja como FUNÇÃO: a
+   *  StoreConnection nasce antes de saber de qual loja é o token (o id só vem
+   *  no primeiro exchange). Com o id copiado na criação, tudo ia pra loja ''
+   *  — status de erro da fila se perdia e o app mostrava "Tudo certo" falhando
+   *  (bug da 1.11.0/1.11.1, achado no teste da 1.11.2). */
+  scopedFor(lojaAtual: () => string): StoreScopedState {
     return {
       get: () => this.get(),
-      setStatus: (status, message) => this.setStoreStatus(storeId, status, message ?? ''),
+      setStatus: (status, message) => this.setStoreStatus(lojaAtual(), status, message ?? ''),
       pushLog: (entry) => {
         const many = this.snap.stores.length > 1
+        const storeId = lojaAtual()
         const name = this.snap.stores.find((s) => s.storeId === storeId)?.storeName
         // Com 2+ lojas o log vira ilegível sem saber de quem é a linha.
         this.pushLog(many && name ? { ...entry, message: `[${name}] ${entry.message}` } : entry)
