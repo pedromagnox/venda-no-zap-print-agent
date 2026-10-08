@@ -11,6 +11,15 @@ export type { DiscoveredSpoolerPrinter } from './discovery'
 export { detectPrintMode } from './detectMode'
 export type { DetectedMode } from './detectMode'
 
+/** Tem alvo de impressão escolhido (fila do Windows ou IP)? Sem isso o
+ *  makePrinter falha com INVALID_CONFIG. Usado pra NÃO pegar pedido sem
+ *  impressora e pra informar o painel no ping (v1.11.2). */
+export function hasPrinterTarget(config: PrinterConfig): boolean {
+  if (config.type === 'windows_spooler') return (config.spoolerName ?? '').trim() !== ''
+  if (config.type === 'network') return (config.host ?? '').trim() !== ''
+  return false
+}
+
 export function makePrinter(config: PrinterConfig): Printer {
   switch (config.type) {
     case 'network': {

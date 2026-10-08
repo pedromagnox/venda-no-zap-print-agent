@@ -128,4 +128,7 @@ export type PingRequest = {
    *  rede, impressoras instaladas, USB devices). Backend salva em
    *  `print_agent_tokens.hardware_info`. Opcional pra retrocompat. */
   hardwareInfo?: Record<string, unknown>
+  /** v1.11.2: tem impressora escolhida? Alimenta o aviso do painel "app aberto,
+   *  mas sem impressora" (antes o painel mostrava "Online" e pronto). */
+  printerConfigured?: boolean
 }

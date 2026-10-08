@@ -33,7 +33,7 @@ Agente desktop (Electron, Windows-first) que roda na máquina do lojista, faz po
 
 - **Runtime**: Electron 31 (Node embarcado), single-instance, bandeja sempre viva
 - **Build**: electron-vite + electron-builder (NSIS one-click pra Windows x64)
-- **Renderer**: React 18 + Vite (UI compacta, janela fixa 420×620, não-resizable)
+- **Renderer**: React 18 + Vite (UI compacta, janela 420×620 — menos em tela baixa —, não-resizable)
 - **Persistência local**: better-sqlite3 (WAL) em `userData/agent.db` + safeStorage (lista de lojas cifrada)
 - **Impressão**: `@thesusheer/electron-printer` (spooler Windows) + socket TCP 9100 (rede)
 - **Sem auto-update**: lojista baixa o `.exe` novo e instala por cima.
@@ -135,6 +135,15 @@ Uma instalação atende **N lojas** — o caso do lojista com duas lojas e uma i
 - **Estado**: `snapshot.stores[]` tem uma entrada por loja; `connection` espelha a primeira (é o que o gate de onboarding usa). A bandeja mostra o **pior** status. Cada loop escreve via `state.scopedFor(storeId)` — sem isso o `setStatus` de uma loja apagaria o da outra.
 - **Servidor**: a PK de `print_agent_devices` é **(store_id, device_id)** desde 20/09/2026. Era só `device_id` (derivado da máquina), então a mesma máquina em duas lojas tinha uma linha que pulava de loja a cada refresh.
 - Colar o token de uma loja **já conectada** atualiza aquela entrada em vez de criar outra — senão dois loops claimariam o mesmo pedido.
+- ⚠️ **A `StoreConnection` nasce com `storeId` vazio** (só descobre a loja no primeiro exchange). Tudo que depende da loja recebe um GETTER (`lojaAtual()`), nunca o id copiado: até a 1.11.1 a visão do estado, a fila local e o buffer de telemetria guardavam `''`, e o status de erro da fila se perdia (o app dizia "Tudo certo" falhando). Linhas sqlite com `store_id = ''` são adotadas pela primeira loja, como as `NULL`.
+
+## Sem impressora escolhida (v1.11.2)
+
+- O `QueueLoop` **não pega pedido** sem alvo (`hasPrinterTarget`): fica amarelo "Escolha a impressora…" e os pedidos esperam na fila. Antes pegava, falhava com INVALID_CONFIG e gastava 1 das 3 tentativas (Oxe: 10 dias; Renascer: roubava o pedido do Android).
+- O ping manda `printerConfigured` → o painel avisa "aberto, mas sem impressora escolhida".
+- Ao escolher a impressora, `kick()` com **espera de 3 s**: o wizard chama `setPrinter` a cada tecla do IP, e um kick por tecla imprimiria em "192.1".
+- Porta **COM não é "suspeita"** (Bluetooth pareado e serial são legítimos); só LPT.
+- Janela com altura `min(620, área útil da tela)`: em tela pequena o rodapé e o "Enviar logs" sumiam.
 
 ## Convenções e armadilhas
 

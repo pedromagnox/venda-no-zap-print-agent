@@ -26,7 +26,8 @@ export type DiscoveredSpoolerPrinter = {
   isDefault: boolean
   status: SpoolerStatus
   portName: string | null
-  /** LPT/COM detectado num PC moderno → 99% das vezes é setup errado de driver USB. */
+  /** LPT num PC moderno → quase sempre fila velha mapeada errado. COM não entra:
+   *  é Bluetooth pareado ou impressora serial de verdade. */
   suspiciousPort: boolean
   /** Driver Windows associado à impressora (ex: "Generic / Text Only",
    *  "EPSON TM-T20", "Bematech MP-4200 TH"). Null quando o enrichment do
@@ -166,5 +167,10 @@ function isSuspiciousPort(portName: string | null): boolean {
   // LPT (paralela) e COM (serial) num PC moderno são, na quase totalidade
   // dos casos, sinal de driver mapeado pra porta errada (impressora USB
   // que deveria estar em USB001/USB002).
-  return /^(LPT|COM)\d+:?$/i.test(portName)
+  // v1.11.2: COM saiu da regra. Impressora Bluetooth pareada vira porta COM, e
+  // serial também (Daruma DR700 na COM12): 7 lojas imprimiam assim (medido em
+  // 07/10/2026, 60 dias) e o aviso mandava trocar pra USB001 — o oposto do
+  // certo. LPT continua suspeita: na prática é fila velha mapeada errado (a
+  // Oxe tinha 3 filas POS-58 mortas em LPT1).
+  return /^LPT\d+:?$/i.test(portName)
 }

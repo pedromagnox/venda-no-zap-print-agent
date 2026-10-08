@@ -1,6 +1,6 @@
 {
   "name": "venda-no-zap-print-agent",
-  "version": "1.11.1-win8",
+  "version": "1.11.2-win8",
   "private": true,
   "description": "Agente de impressão local para pedidos do Venda no Zap em impressoras térmicas.",
   "author": "Venda no Zap",

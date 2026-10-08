@@ -56,7 +56,7 @@ export class LocalQueue {
    *  de antes da atualização e pertencem à primeira loja. */
   constructor(
     private readonly db: Database.Database,
-    private readonly storeId: string,
+    private readonly lojaAtual: () => string,
     private readonly adoptsLegacyRows = false
   ) {
     this.stmtInsert = db.prepare(`
@@ -73,14 +73,14 @@ export class LocalQueue {
         paper_width AS paperWidth, copies, claimed_at AS claimedAt,
         lease_expires_at AS leaseExpiresAt, attempts, last_error AS lastError
       FROM claimed_items
-      WHERE store_id = ? OR (? AND store_id IS NULL)
+      WHERE store_id = ? OR (? AND (store_id IS NULL OR store_id = ''))
       ORDER BY claimed_at ASC
     `)
     this.stmtIncrAttempts = db.prepare(`
       UPDATE claimed_items SET attempts = attempts + 1, last_error = ? WHERE id = ?
     `)
     this.stmtCount = db.prepare(
-      `SELECT COUNT(*) AS c FROM claimed_items WHERE store_id = ? OR (? AND store_id IS NULL)`
+      `SELECT COUNT(*) AS c FROM claimed_items WHERE store_id = ? OR (? AND (store_id IS NULL OR store_id = ''))`
     )
   }
 
@@ -98,7 +98,7 @@ export class LocalQueue {
       copies: row.copies,
       claimedAt: row.claimedAt,
       leaseExpiresAt: row.leaseExpiresAt,
-      storeId: this.storeId
+      storeId: this.lojaAtual()
     })
   }
 
@@ -107,7 +107,7 @@ export class LocalQueue {
   }
 
   list(): ClaimedRow[] {
-    const raw = this.stmtList.all(this.storeId, this.adoptsLegacyRows ? 1 : 0) as RawRow[]
+    const raw = this.stmtList.all(this.lojaAtual(), this.adoptsLegacyRows ? 1 : 0) as RawRow[]
     return raw.map((r) => ({
       ...r,
       paperWidth: r.paperWidth === 58 ? 58 : 80,
@@ -120,7 +120,7 @@ export class LocalQueue {
   }
 
   count(): number {
-    const row = this.stmtCount.get(this.storeId, this.adoptsLegacyRows ? 1 : 0) as { c: number }
+    const row = this.stmtCount.get(this.lojaAtual(), this.adoptsLegacyRows ? 1 : 0) as { c: number }
     return row.c
   }
 }

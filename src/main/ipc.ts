@@ -117,6 +117,7 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
   // Teste de impressão e cupom-amostra são da MÁQUINA, não de uma loja — mas
   // o cupom-amostra vem do servidor, então usamos a primeira loja conectada.
   const anyConnection = (): StoreConnection | null => connections.values().next().value ?? null
+  let kickTimer: NodeJS.Timeout | null = null
 
   ipcMain.handle('agent:getSnapshot', (): AgentSnapshot => state.get())
 
@@ -189,6 +190,16 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
         state.setPrintMode(d.mode, d.driver)
         logDetectionResult(state, d, 'setPrinter')
       })
+      // Com o WebSocket conectado o loop só age quando acordado: sem este kick,
+      // os pedidos que esperavam a impressora só sairiam no próximo pedido novo.
+      // Com ESPERA de 3 s: o wizard chama setPrinter a cada tecla do IP da
+      // impressora de rede, e um kick por tecla tentaria imprimir em "192.1" e
+      // gastaria as tentativas do pedido.
+      if (kickTimer) clearTimeout(kickTimer)
+      kickTimer = setTimeout(() => {
+        kickTimer = null
+        for (const conn of connections.values()) conn.kick()
+      }, 3_000)
       try {
         await writeJsonFile('printer', printer)
         return { ok: true }
