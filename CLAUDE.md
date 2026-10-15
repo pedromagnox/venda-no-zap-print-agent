@@ -126,7 +126,7 @@ Uma instalação atende **N lojas** — o caso do lojista com duas lojas e uma i
 - **Consulta de segurança**: com o WebSocket conectado (paused), o `QueueLoop` consulta a fila a cada 75 s (`PAUSED_SAFETY_POLL_MS`). Antes o paused só andava com a campainha: app vivo que perdia o aviso ficava parado até reabrir (Five Smash). O log «Consulta de segurança: N pedido(s) na fila sem aviso do servidor» = campainha perdida.
 - **Vigia** (`StoreConnection.vigiar`, a cada ping que deu certo): religa a busca, como o pós-resume, quando ela está suspensa há mais de 1 min sem o `resume`/`unlock-screen` do Windows, ou ativa e sem tick há mais de 4 min. O `suspend()` não para o heartbeat justamente para isso.
 - `resumeAfterWake()` não reinicia o loop com tick ou `recoverLocal` em andamento (`isBusy`): o `recoverLocal` releria a fila local e imprimiria de novo o pedido que ainda está saindo.
-- Teste de verdade dos três casos (Electron em xvfb contra servidor falso, «internet» desligada no boot, campainha muda, `powerMonitor.emit('suspend')` pelo inspector do main): o roteiro ficou no scratchpad da sessão, não no repo.
+- Teste de verdade dos três casos: `scripts/teste-real.mjs` (Electron em xvfb contra servidor falso, «internet» desligada no boot, campainha muda, `powerMonitor.emit('suspend')` pelo inspector do main; `--contraste` roda a versão velha). Pré-requisitos no cabeçalho do script.
 
 ## Convenções e armadilhas
 
