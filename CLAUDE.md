@@ -120,6 +120,14 @@ Uma instalação atende **N lojas** — o caso do lojista com duas lojas e uma i
 - Porta **COM não é "suspeita"** (Bluetooth pareado e serial são legítimos); só LPT.
 - Janela com altura `min(620, área útil da tela)`: em tela pequena o rodapé e o "Enviar logs" sumiam.
 
+## Reconexão do boot, vigia e consulta de segurança (v1.11.3)
+
+- **Boot sem internet** (`index.ts`, `reconectarSalva`): a reconexão de cada loja salva repete com espera crescente (5 s, 10 s, 20 s… até 60 s) até conectar, e o `agent_started` sai quando conecta. Antes era uma tentativa só: o app abre com o Windows antes do Wi-Fi e ficava vermelho até reinstalar (Oxe, #206). Token recusado (401) não se repete.
+- **Consulta de segurança**: com o WebSocket conectado (paused), o `QueueLoop` consulta a fila a cada 75 s (`PAUSED_SAFETY_POLL_MS`). Antes o paused só andava com a campainha: app vivo que perdia o aviso ficava parado até reabrir (Five Smash). O log «Consulta de segurança: N pedido(s) na fila sem aviso do servidor» = campainha perdida.
+- **Vigia** (`StoreConnection.vigiar`, a cada ping que deu certo): religa a busca, como o pós-resume, quando ela está suspensa há mais de 1 min sem o `resume`/`unlock-screen` do Windows, ou ativa e sem tick há mais de 4 min. O `suspend()` não para o heartbeat justamente para isso.
+- `resumeAfterWake()` não reinicia o loop com tick ou `recoverLocal` em andamento (`isBusy`): o `recoverLocal` releria a fila local e imprimiria de novo o pedido que ainda está saindo.
+- Teste de verdade dos três casos (Electron em xvfb contra servidor falso, «internet» desligada no boot, campainha muda, `powerMonitor.emit('suspend')` pelo inspector do main): o roteiro ficou no scratchpad da sessão, não no repo.
+
 ## Convenções e armadilhas
 
 - **Native modules ficam fora do asar** (`asarUnpack` no `electron-builder.yml`). Ao adicionar outro `.node`, repetir o padrão.
