@@ -126,6 +126,11 @@ Uma instalação atende **N lojas** — o caso do lojista com duas lojas e uma i
 - **Consulta de segurança**: com o WebSocket conectado (paused), o `QueueLoop` consulta a fila a cada 75 s (`PAUSED_SAFETY_POLL_MS`). Antes o paused só andava com a campainha: app vivo que perdia o aviso ficava parado até reabrir (Five Smash). O log «Consulta de segurança: N pedido(s) na fila sem aviso do servidor» = campainha perdida.
 - **Vigia** (`StoreConnection.vigiar`, a cada ping que deu certo): religa a busca, como o pós-resume, quando ela está suspensa há mais de 1 min sem o `resume`/`unlock-screen` do Windows, ou ativa e sem tick há mais de 4 min. O `suspend()` não para o heartbeat justamente para isso.
 - `resumeAfterWake()` não reinicia o loop com tick ou `recoverLocal` em andamento (`isBusy`): o `recoverLocal` releria a fila local e imprimiria de novo o pedido que ainda está saindo.
+- **v1.11.4** (casos que a 1.11.3 deixava passar, apontados pela sessão Atendente em 16/10):
+  - o vigia também religa a busca **inativa e ociosa fora da suspensão**. Com a reimpressão das pendentes em andamento, o pós-resume pulava o reinício e o loop, parado pela suspensão, morria;
+  - o `recoverLocal` confere, já com a vez na impressora, se o pedido ainda está na fila local (`localQueue.has`). Um tick de antes da suspensão podia tê-lo impresso, e saía em dobro;
+  - WebSocket com `handshakeTimeout` de 15 s. Sem prazo, um handshake que nunca respondia deixava o WS em «conectando» para sempre.
+  - Teste: `scripts/teste-real-reimpressao.mjs`.
 - Teste de verdade dos três casos: `scripts/teste-real.mjs` (Electron em xvfb contra servidor falso, «internet» desligada no boot, campainha muda, `powerMonitor.emit('suspend')` pelo inspector do main; `--contraste` roda a versão velha). Pré-requisitos no cabeçalho do script.
 
 ## Convenções e armadilhas

@@ -210,7 +210,13 @@ export class QueueLoop {
     })
     for (const row of pending) {
       if (!this.active) break
-      await this.mutex.runExclusive(() => this.printAndAck(row, row.printMode ?? undefined))
+      await this.mutex.runExclusive(async () => {
+        // v1.11.4: a lista foi lida antes de esperar a vez na impressora. Um tick
+        // de antes da suspensão pode ter impresso (e apagado) este pedido nesse
+        // meio-tempo: imprimir de novo seria cupom em dobro.
+        if (!this.active || !this.deps.localQueue.has(row.id)) return
+        await this.printAndAck(row, row.printMode ?? undefined)
+      })
     }
   }
 

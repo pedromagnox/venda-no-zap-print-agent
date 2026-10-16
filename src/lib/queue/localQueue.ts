@@ -49,6 +49,7 @@ export class LocalQueue {
   private readonly stmtList: Database.Statement
   private readonly stmtIncrAttempts: Database.Statement
   private readonly stmtCount: Database.Statement
+  private readonly stmtHas: Database.Statement
 
   /** v1.11.0: cada loja conectada tem a sua LocalQueue sobre o MESMO sqlite.
    *  O recorte é `store_id` — item de uma loja jamais é recuperado (e ackado)
@@ -66,6 +67,7 @@ export class LocalQueue {
         (@id, @orderNumber, @bytesB64, @text, @printMode, @paperWidth, @copies, @claimedAt, @leaseExpiresAt, 0, NULL, @storeId)
     `)
     this.stmtDelete = db.prepare(`DELETE FROM claimed_items WHERE id = ?`)
+    this.stmtHas = db.prepare(`SELECT 1 FROM claimed_items WHERE id = ?`)
     this.stmtList = db.prepare(`
       SELECT
         id, order_number AS orderNumber, bytes_b64 AS bytesB64,
@@ -104,6 +106,11 @@ export class LocalQueue {
 
   remove(id: string): void {
     this.stmtDelete.run(id)
+  }
+
+  /** v1.11.4: o pedido ainda está pendente aqui (não foi impresso e apagado). */
+  has(id: string): boolean {
+    return this.stmtHas.get(id) !== undefined
   }
 
   list(): ClaimedRow[] {

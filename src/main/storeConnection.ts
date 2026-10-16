@@ -53,6 +53,8 @@ export class StoreConnection {
   private suspendedAt: number | null = null
   /** Suspensa há mais que isso com o ping dando certo = o 'resume' não veio. */
   private static readonly VIGIA_APOS_SUSPENSAO_MS = 60_000
+  /** v1.11.4: entre start() e stop(). O vigia só religa a busca de quem está de pé. */
+  private rodando = false
 
   constructor(
     storeId: string,
@@ -165,6 +167,7 @@ export class StoreConnection {
   }
 
   async start(): Promise<void> {
+    this.rodando = true
     this.suspendedAt = null
     this.heartbeat.start()
     await this.queueLoop.start()
@@ -172,6 +175,7 @@ export class StoreConnection {
   }
 
   stop(): void {
+    this.rodando = false
     this.suspendedAt = null
     this.queueLoop.stop()
     this.heartbeat.stop()
@@ -206,18 +210,29 @@ export class StoreConnection {
    *   - suspensa há mais de 1 min sem o 'resume'/'unlock-screen' do Windows.
    *     Na Five Smash (14/10), o pedido ficou 52 min na fila com o ping vivo e
    *     a tela dizendo que estava tudo certo;
-   *   - ou ativa e sem tick há mais de 4 min (timer perdido). */
+   *   - ou ativa e sem tick há mais de 4 min (timer perdido);
+   *   - v1.11.4: ou inativa e ociosa, sem suspensão pendente. É o pós-resume
+   *     que não reiniciou o loop porque a reimpressão das pendentes ainda
+   *     estava em andamento: ela termina, e o loop (parado pela suspensão)
+   *     ficava morto. */
   private vigiar(): void {
     const agora = Date.now()
     const suspensaSemRetomada =
       this.suspendedAt !== null && agora - this.suspendedAt > StoreConnection.VIGIA_APOS_SUSPENSAO_MS
-    if (!suspensaSemRetomada && !this.queueLoop.estaParada(agora)) return
+    const naoVoltouDaSuspensao =
+      this.rodando &&
+      this.suspendedAt === null &&
+      !this.queueLoop.isActive() &&
+      !this.queueLoop.isBusy()
+    if (!suspensaSemRetomada && !naoVoltouDaSuspensao && !this.queueLoop.estaParada(agora)) return
     this.scopedState.pushLog({
       time: formatLogTime(),
       level: 'warn',
       message: suspensaSemRetomada
         ? 'A busca de pedidos estava parada desde a suspensão do computador (o Windows não avisou a volta) — religando.'
-        : 'A busca de pedidos estava parada — religando.'
+        : naoVoltouDaSuspensao
+          ? 'A busca de pedidos não voltou depois da suspensão — religando.'
+          : 'A busca de pedidos estava parada — religando.'
     })
     void this.resumeAfterWake()
   }
