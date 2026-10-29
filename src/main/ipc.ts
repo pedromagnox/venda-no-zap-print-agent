@@ -10,7 +10,7 @@ import {
   listSpoolerPrinters
 } from '@lib/printer'
 import type { DiscoveredSpoolerPrinter } from '@lib/printer'
-import { listarSemFila, criarFilaGenerica } from '@lib/printer/semFila'
+import * as semFila from '@lib/printer/semFila'
 import { writeJsonFile } from '@lib/storage/jsonStore'
 import { formatLogTime } from '@shared/logTime'
 import { applyAutoStart } from './autoStart'
@@ -350,9 +350,17 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
   )
 
   // v1.12.0: térmica Bluetooth pareada ou USB sem driver, ainda sem fila.
+  // A tela pergunta a cada 5 s; o log só ganha linha quando o resumo muda.
+  let diagnosticoLogado = ''
   ipcMain.handle('agent:listSemFila', async (): Promise<ImpressoraSemFila[]> => {
     try {
-      return await listarSemFila()
+      const itens = await semFila.listarSemFila()
+      const diagnostico = semFila.diagnosticoDaBusca()
+      if (diagnostico && diagnostico !== diagnosticoLogado) {
+        diagnosticoLogado = diagnostico
+        state.pushLog({ time: nowLogTime(), level: 'info', message: `Busca de impressoras: ${diagnosticoLogado}` })
+      }
+      return itens
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       state.pushLog({ time: nowLogTime(), level: 'warn', message: `Busca de impressora sem fila falhou: ${msg}` })
@@ -368,7 +376,7 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
         level: 'info',
         message: `Criando a impressora "${item.suggestedQueueName}" na ${item.port} (${item.kind === 'bluetooth' ? 'Bluetooth' : 'USB'}: ${item.label})…`
       })
-      const result = await criarFilaGenerica(item.port, item.suggestedQueueName)
+      const result = await semFila.criarFilaGenerica(item.port, item.suggestedQueueName)
       state.pushLog(
         result.ok
           ? {

@@ -109,12 +109,15 @@ try {
   await foto('3-depois.png')
   const snap = await evalTela('window.printAgent.getSnapshot()')
   console.log('impressora escolhida:', JSON.stringify(snap.printer))
-  console.log('logs:', snap.logs.slice(0, 4).map((l) => l.message))
+  console.log('logs:', snap.logs.slice(0, 5).map((l) => l.message))
+} catch (err) {
+  console.error('FALHOU:', err)
+  process.exitCode = 1
 } finally {
   try {
     process.kill(-app.pid, 'SIGKILL')
   } catch {}
   server.close()
   fs.rmSync(CFG, { recursive: true, force: true })
-  process.exit(0)
+  process.exit(process.exitCode ?? 0)
 }

@@ -279,6 +279,13 @@ function listaFake(): ImpressoraSemFila[] {
   })
 }
 
+let ultimoDiagnostico = ''
+
+/** Resumo da última busca, para o log. */
+export function diagnosticoDaBusca(): string {
+  return ultimoDiagnostico
+}
+
 export async function listarSemFila(): Promise<ImpressoraSemFila[]> {
   if (fakeAtivo()) return listaFake()
   if (process.platform !== 'win32') return []
@@ -288,13 +295,20 @@ export async function listarSemFila(): Promise<ImpressoraSemFila[]> {
     regQuery(KEY_USBPRINT),
     regQuery(KEY_PRINTERS, ['/v', 'Port'])
   ])
-  return montarSemFila({
-    btOutgoing: parseBluetoothOutgoing(bthenum),
-    btNames: parseBluetoothNames(btDevices),
-    usbPorts: parseUsbPrintPorts(usbprint),
-    printersByPort: parsePrinterPorts(printers)
-  })
+  const btOutgoing = parseBluetoothOutgoing(bthenum)
+  const btNames = parseBluetoothNames(btDevices)
+  const usbPorts = parseUsbPrintPorts(usbprint)
+  const printersByPort = parsePrinterPorts(printers)
+  const itens = montarSemFila({ btOutgoing, btNames, usbPorts, printersByPort })
+  // Uma linha para o log (sai no «Enviar logs ao suporte»): sem ela, quando a
+  // impressora não aparece, não dá para saber de longe em que passo parou.
+  ultimoDiagnostico =
+    `Bluetooth: ${btOutgoing.length} porta(s) de saída (${btOutgoing.map((b) => `${b.port}${btNames.has(b.mac) ? '' : ' sem nome'}`).join(', ') || '—'}), ` +
+    `${btNames.size} aparelho(s) pareado(s); USB: ${usbPorts.map((u) => `${u.port}${u.present ? '' : ' desligada'}`).join(', ') || 'nenhuma porta'}; ` +
+    `filas em ${[...printersByPort.keys()].join(', ') || '—'}; sem fila: ${itens.map((i) => i.port).join(', ') || 'nenhuma'}`
+  return itens
 }
+
 
 async function filaExiste(nome: string): Promise<boolean> {
   if (process.platform !== 'win32') return false

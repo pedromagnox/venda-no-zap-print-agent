@@ -142,6 +142,7 @@ Uma instalação atende **N lojas** — o caso do lojista com duas lojas e uma i
 - USB de marca com driver próprio (Elgin, Bematech, Epson…) mostra o aviso para instalar o driver de quem também imprime por outro programa (99Food em modo gráfico precisa dele).
 - A v1.6–1.8 tinha um auto-instalador só de USB pelo PowerShell, aposentado na 1.10.5 junto com o YICHIP. Na época a fila Generic deixava a loja em modo pobre (sem corte, sem acento); desde a 1.10.4 o app manda RAW no modo do assistente, e isso deixou de valer.
 - Testes: `node --test scripts/teste-sem-fila.mjs` (saídas do `reg query` em pt-BR). Tela: `scripts/foto-sem-fila.mjs` (lista falsa com `PRINT_AGENT_FAKE_SEM_FILA=1`, que só vale fora do Windows).
+- Cada busca que muda deixa uma linha «Busca de impressoras: …» no log (portas Bluetooth de saída, pareadas, portas USB, filas, sem fila). Ela vai junto no «Enviar logs ao suporte»: é por ela que se vê, de longe, onde a impressora sumiu.
 - ⚠️ Os formatos do registro e o `printui` com `ntprint.inf` só se provam num Windows de verdade.
 
 ## Convenções e armadilhas
