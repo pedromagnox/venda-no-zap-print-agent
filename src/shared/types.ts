@@ -56,27 +56,26 @@ export type SpoolerPrinterInfo = {
   suspiciousPort: boolean
 }
 
-/** Térmica USB candidata a instalação automática como Generic / Text Only.
- *  Renderer trata 2 categorias:
- *    - `isKnown: true`  → VID está na whitelist (ex: YICHIP) → auto-instala
- *                         silenciosamente sem perguntar
- *    - `isKnown: false` → heurística (USB device + porta USB no spooler + sem
- *                         fila instalada) → mostra diálogo de confirmação
- *                         pra lojista decidir entre Generic ou instalar driver
- *                         do fabricante (Epson/Bematech/Daruma/Elgin) */
-export type DetectedCheapPrinter = {
-  vid: string
-  pid: string
-  vendor: string
-  deviceName: string
-  portName: string | null
-  alreadyInstalled: boolean
-  suggestedName: string
-  isKnown: boolean
+/** v1.12.0: térmica que o Windows enxerga mas que ainda não tem impressora
+ *  (fila) criada — Bluetooth pareada (porta COM de saída) ou USB sem driver
+ *  (porta USB00x do usbprint). O app cria a fila «Generic / Text Only» nessa
+ *  porta quando o lojista escolhe (`lib/printer/semFila.ts`). */
+export type ImpressoraSemFila = {
+  kind: 'bluetooth' | 'usb'
+  /** COM3, USB001… */
+  port: string
+  /** Nome do aparelho Bluetooth ou descrição da porta USB. */
+  label: string
+  /** Linha de baixo na lista («Bluetooth · pareada (COM3)»). */
+  detail: string
+  /** Nome da fila que o app cria («Termica KPrinter_ab28»). */
+  suggestedQueueName: string
+  /** Fabricante USB (VID), quando é USB. 20D1 = Elgin. */
+  vid: string | null
 }
 
-export type InstallResult =
-  | { ok: true; printerName: string; portName: string }
+export type InstalarImpressoraResult =
+  | { ok: true; queueName: string; elevated: boolean }
   | { ok: false; error: string }
 
 

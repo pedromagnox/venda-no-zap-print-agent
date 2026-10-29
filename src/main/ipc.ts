@@ -10,12 +10,21 @@ import {
   listSpoolerPrinters
 } from '@lib/printer'
 import type { DiscoveredSpoolerPrinter } from '@lib/printer'
+import { listarSemFila, criarFilaGenerica } from '@lib/printer/semFila'
 import { writeJsonFile } from '@lib/storage/jsonStore'
 import { formatLogTime } from '@shared/logTime'
 import { applyAutoStart } from './autoStart'
 import type { StoreConnection } from './storeConnection'
 import { randomUUID } from 'node:crypto'
-import type { AgentSnapshot, PrinterConfig, Preferences, PrinterType, PrintModeSelection } from '@shared/types'
+import type {
+  AgentSnapshot,
+  ImpressoraSemFila,
+  InstalarImpressoraResult,
+  PrinterConfig,
+  Preferences,
+  PrinterType,
+  PrintModeSelection
+} from '@shared/types'
 
 export type IpcDeps = {
   state: AgentState
@@ -337,6 +346,43 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
         })
         return { ok: false, error: msg, code, hint }
       }
+    }
+  )
+
+  // v1.12.0: térmica Bluetooth pareada ou USB sem driver, ainda sem fila.
+  ipcMain.handle('agent:listSemFila', async (): Promise<ImpressoraSemFila[]> => {
+    try {
+      return await listarSemFila()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      state.pushLog({ time: nowLogTime(), level: 'warn', message: `Busca de impressora sem fila falhou: ${msg}` })
+      return []
+    }
+  })
+
+  ipcMain.handle(
+    'agent:instalarImpressora',
+    async (_e, item: ImpressoraSemFila): Promise<InstalarImpressoraResult> => {
+      state.pushLog({
+        time: nowLogTime(),
+        level: 'info',
+        message: `Criando a impressora "${item.suggestedQueueName}" na ${item.port} (${item.kind === 'bluetooth' ? 'Bluetooth' : 'USB'}: ${item.label})…`
+      })
+      const result = await criarFilaGenerica(item.port, item.suggestedQueueName)
+      state.pushLog(
+        result.ok
+          ? {
+              time: nowLogTime(),
+              level: 'info',
+              message: `Impressora "${result.queueName}" criada na ${item.port}${result.elevated ? ' (com permissão do Windows)' : ''}.`
+            }
+          : {
+              time: nowLogTime(),
+              level: 'warn',
+              message: `Não deu para criar a impressora na ${item.port}: ${result.error}`
+            }
+      )
+      return result
     }
   )
 

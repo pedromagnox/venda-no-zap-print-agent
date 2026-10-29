@@ -8,6 +8,7 @@ import type {
   SpoolerStatus
 } from '@shared/types'
 import { describeHostIssue } from '../../lib/printerConfig'
+import { ImpressorasSemFila } from '../ImpressorasSemFila'
 
 type PrinterSectionProps = {
   config: PrinterConfig
@@ -40,6 +41,7 @@ export function PrinterSection({
 }: PrinterSectionProps): JSX.Element {
   const [spoolerList, setSpoolerList] = useState<SpoolerPrinterInfo[]>([])
   const [spoolerLoading, setSpoolerLoading] = useState(false)
+  const [semFilaCount, setSemFilaCount] = useState(0)
 
   const loadSpooler = async (): Promise<void> => {
     setSpoolerLoading(true)
@@ -107,10 +109,17 @@ export function PrinterSection({
               </option>
             ))}
           </select>
-          {spoolerList.length === 0 && !spoolerLoading && (
+          <ImpressorasSemFila
+            onCount={setSemFilaCount}
+            onInstalled={(queueName) => {
+              void loadSpooler()
+              onChange({ ...config, spoolerName: queueName })
+            }}
+          />
+          {spoolerList.length === 0 && semFilaCount === 0 && !spoolerLoading && (
             <div className="field-hint">
-              Nenhuma impressora encontrada. Instale o driver do fabricante em
-              Painel de Controle &gt; Dispositivos e Impressoras.
+              Nenhuma impressora encontrada. Ligue a impressora no cabo USB ou pareie no
+              Bluetooth do Windows: ela aparece aqui sozinha.
             </div>
           )}
           <SpoolerSelectedWarnings
