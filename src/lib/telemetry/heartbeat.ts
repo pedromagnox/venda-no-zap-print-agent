@@ -20,6 +20,9 @@ export type HeartbeatDeps = {
   intervalMs: number
   /** v1.11.2: o painel avisa quando o app está aberto sem impressora escolhida. */
   getPrinterConfigured?: () => boolean
+  /** v1.11.3: chamado a cada ping que deu certo (rede e servidor no ar) — é
+   *  onde o vigia da StoreConnection confere se a busca de pedidos parou. */
+  onPingOk?: () => void
 }
 
 export class Heartbeat {
@@ -76,6 +79,11 @@ export class Heartbeat {
           ? { printerConfigured: this.deps.getPrinterConfigured() }
           : {})
       })
+      try {
+        this.deps.onPingOk?.()
+      } catch {
+        /* o vigia não pode derrubar o heartbeat */
+      }
       // Aproveita conexão verificada pra drenar buffer.
       await this.deps.telemetry.drainBuffer().catch(() => {})
     } catch {

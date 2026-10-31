@@ -52,15 +52,28 @@ export class QueueLoop {
   private static readonly IDLE_LOG_EVERY_N_TICKS = 120
 
   /** Intervalo de poll quando o loop está em modo periódico (WS desconectado).
-   *  Em modo paused (WS conectado), não há tick agendado — só kick(). */
+   *  Em modo paused (WS conectado), o tick agendado é a consulta de segurança. */
   private readonly intervalMs: number
+  /** v1.11.3: em paused, consulta de segurança à fila a cada 75 s. Antes o
+   *  paused não agendava nada e dependia só da campainha: app vivo que perdia o
+   *  aviso ficava com o pedido parado até ser reaberto (Five Smash, 14/10). O
+   *  limite do claim-lease é 60/min por token. */
+  private static readonly PAUSED_SAFETY_POLL_MS = 75_000
+  private nextTickIsSafetyPoll = false
+  /** v1.11.3: início do último tick e a recuperação local em andamento — o
+   *  vigia da StoreConnection usa pra saber se a busca parou (estaParada). */
+  private lastTickAt = 0
+  private recovering = false
+  /** Ativo, ocioso e sem tick há 4 min = busca parada: o paused agenda a
+   *  consulta de segurança a cada 75 s e o backoff de erro vai até 60 s. */
+  private static readonly STALL_MS = 4 * 60_000
   /** Coalescing do kick(): se um tick já está rodando quando chega um push,
    *  marca pra rodar mais um logo após — sem disparar ticks sobrepostos. */
   private ticking = false
   private kickPending = false
-  /** v1.9.0: paused=true quando WS conectado. Não agenda tick periódico, só
-   *  responde a kick(). Permite zero polling redundante enquanto o push está
-   *  saudável; se WS cai, resume() volta o tick normal. */
+  /** v1.9.0: paused=true quando WS conectado: os pedidos chegam por kick().
+   *  Desde a 1.11.3 agenda só a consulta de segurança (75 s); se o WS cai,
+   *  resume() volta o tick normal. */
   private paused = false
   /** v1.9.0: flag setada por kickFromReconnect(). Próximo tick loga
    *  separadamente quando vier com items > 0 (sinal de push perdido pelo DO
@@ -82,19 +95,23 @@ export class QueueLoop {
     this.intervalMs = deps.intervalMs
   }
 
-  /** WS conectou: cancela tick periódico. Só responde a kick() até resume(). */
+  /** WS conectou: o tick periódico vira a consulta de segurança (75 s); o
+   *  resto vem por kick(). */
   pause(): void {
     if (this.paused) return
     this.paused = true
     if (this.timeoutId) clearTimeout(this.timeoutId)
     this.timeoutId = null
+    if (!this.ticking) this.scheduleNext()
   }
 
   /** WS caiu: volta a agendar tick a cada intervalMs. Dispara um imediato. */
   resume(): void {
     if (!this.paused) return
     this.paused = false
-    if (this.active && !this.timeoutId && !this.ticking) this.schedule(0)
+    if (!this.active || this.ticking) return
+    // A consulta de segurança do paused pode estar agendada: troca por um tick já.
+    this.schedule(0)
   }
 
   /** Dispara um tick imediato (push do WebSocket avisou que tem job). Coalesce
@@ -124,6 +141,24 @@ export class QueueLoop {
     return this.active
   }
 
+  /** v1.11.3: tick ou recuperação local em andamento. Reiniciar o loop agora
+   *  faria o recoverLocal reler a fila local e imprimir de novo o pedido que o
+   *  tick ainda está imprimindo. */
+  isBusy(): boolean {
+    return this.ticking || this.recovering
+  }
+
+  /** v1.11.3: ativo, ocioso e sem tick há mais de STALL_MS = a busca parou
+   *  (timer perdido). O vigia da StoreConnection religa. */
+  estaParada(agora = Date.now()): boolean {
+    return (
+      this.active &&
+      !this.isBusy() &&
+      this.lastTickAt > 0 &&
+      agora - this.lastTickAt > QueueLoop.STALL_MS
+    )
+  }
+
   getInFlightClaimId(): string | null {
     return this.inFlightClaimId
   }
@@ -131,12 +166,18 @@ export class QueueLoop {
   async start(): Promise<void> {
     if (this.active) return
     this.active = true
+    this.lastTickAt = Date.now()
     this.deps.state.pushLog({
       time: nowLogTime(),
       level: 'info',
       message: 'Polling da fila iniciado.'
     })
-    await this.recoverLocal()
+    this.recovering = true
+    try {
+      await this.recoverLocal()
+    } finally {
+      this.recovering = false
+    }
     this.schedule(0)
   }
 
@@ -169,22 +210,42 @@ export class QueueLoop {
     })
     for (const row of pending) {
       if (!this.active) break
-      await this.mutex.runExclusive(() => this.printAndAck(row, row.printMode ?? undefined))
+      await this.mutex.runExclusive(async () => {
+        // v1.11.4: a lista foi lida antes de esperar a vez na impressora. Um tick
+        // de antes da suspensão pode ter impresso (e apagado) este pedido nesse
+        // meio-tempo: imprimir de novo seria cupom em dobro.
+        if (!this.active || !this.deps.localQueue.has(row.id)) return
+        await this.printAndAck(row, row.printMode ?? undefined)
+      })
     }
   }
 
-  private schedule(delayMs: number): void {
+  private schedule(delayMs: number, seguranca = false): void {
     if (!this.active) return
+    // Um timer só: dois pendentes rodariam dois ticks ao mesmo tempo.
+    if (this.timeoutId) clearTimeout(this.timeoutId)
     this.timeoutId = setTimeout(() => {
+      this.timeoutId = null
+      this.nextTickIsSafetyPoll = seguranca
       void this.tick()
     }, delayMs)
+  }
+
+  /** Próximo tick sem pressa: a consulta de segurança em paused (WS
+   *  conectado), intervalMs no modo periódico. */
+  private scheduleNext(): void {
+    if (this.paused) this.schedule(QueueLoop.PAUSED_SAFETY_POLL_MS, true)
+    else this.schedule(this.intervalMs)
   }
 
   private async tick(): Promise<void> {
     if (!this.active) return
     this.ticking = true
+    this.lastTickAt = Date.now()
     const isReconnectCatchup = this.nextTickIsReconnectCatchup
     this.nextTickIsReconnectCatchup = false
+    const isSafetyPoll = this.nextTickIsSafetyPoll
+    this.nextTickIsSafetyPoll = false
     try {
       const config = this.deps.getPrinterConfig()
       // v1.11.2: SEM IMPRESSORA ESCOLHIDA, NÃO PEGA PEDIDO. Antes pegava, falhava
@@ -205,7 +266,7 @@ export class QueueLoop {
         }
         this.ticking = false
         this.kickPending = false
-        if (!this.paused) this.schedule(this.intervalMs)
+        this.scheduleNext()
         return
       }
       if (this.semImpressoraAvisado) {
@@ -237,6 +298,14 @@ export class QueueLoop {
             level: 'info',
             message: `Catch-up após reconexão: ${items.length} pedido(s) recuperado(s) — processando.`
           })
+        } else if (isSafetyPoll) {
+          // O WebSocket estava "conectado" e o aviso desses pedidos não chegou:
+          // é a consulta de segurança cobrindo a campainha perdida.
+          this.deps.state.pushLog({
+            time: nowLogTime(),
+            level: 'warn',
+            message: `Consulta de segurança: ${items.length} pedido(s) na fila sem aviso do servidor — processando.`
+          })
         } else {
           this.deps.state.pushLog({
             time: nowLogTime(),
@@ -263,13 +332,13 @@ export class QueueLoop {
         await this.processLeased(item, mode)
       }
       this.ticking = false
-      // Em paused: agenda só se tem kick pendente (push enquanto tick rodava).
-      // Em modo periódico: agenda próximo tick em intervalMs (ou 0 se kicked).
+      // Kick pendente (push enquanto o tick rodava) → tick já. Senão, o próximo
+      // sem pressa: consulta de segurança em paused, intervalMs no periódico.
       if (this.kickPending) {
         this.kickPending = false
         this.schedule(0)
-      } else if (!this.paused) {
-        this.schedule(this.intervalMs)
+      } else {
+        this.scheduleNext()
       }
     } catch (err) {
       this.ticking = false

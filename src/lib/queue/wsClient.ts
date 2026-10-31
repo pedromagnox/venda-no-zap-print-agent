@@ -114,7 +114,10 @@ export class WsClient {
     }
 
     const ws = new WebSocket(this.deps.url, {
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}` },
+      // v1.11.4: sem prazo, um handshake que nunca responde deixava o WS em
+      // "conectando" para sempre — sem 'close', sem nova tentativa.
+      handshakeTimeout: 15_000
     })
     this.ws = ws
 

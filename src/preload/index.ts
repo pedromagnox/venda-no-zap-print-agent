@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AgentSnapshot,
+  ImpressoraSemFila,
+  InstalarImpressoraResult,
   PrinterConfig,
   Preferences,
   PrintModeSelection,
@@ -48,7 +50,14 @@ const api = {
     ipcRenderer.invoke('agent:printTestReceipt', mode),
 
   listSpoolerPrinters: (): Promise<SpoolerPrinterInfo[]> =>
-    ipcRenderer.invoke('agent:listSpoolerPrinters')
+    ipcRenderer.invoke('agent:listSpoolerPrinters'),
+
+  /** v1.12.0: Bluetooth pareada ou USB sem driver, ainda sem impressora no Windows. */
+  listSemFila: (): Promise<ImpressoraSemFila[]> => ipcRenderer.invoke('agent:listSemFila'),
+
+  /** Cria a impressora «Generic / Text Only» na porta (pode abrir a permissão do Windows). */
+  instalarImpressora: (item: ImpressoraSemFila): Promise<InstalarImpressoraResult> =>
+    ipcRenderer.invoke('agent:instalarImpressora', item)
 }
 
 contextBridge.exposeInMainWorld('printAgent', api)

@@ -50,12 +50,12 @@ export const config = {
   wsUrl:
     process.env['PRINT_AGENT_WS_URL'] ??
     (packaged ? 'wss://vendanozap.app/api/print-agent/ws' : ''),
-  // v1.9.0: backstop de polling removido. Com WS conectado, o QueueLoop entra
-  // em pause() — zero requests periódicos de /queue. Push do WS dispara kick()
-  // imediato; catch-up acontece em todo onConnected via kickFromReconnect().
-  // Confiamos no ping/pong (PING 20s + PONG 8s = detecta WS fantasma em ~28s)
-  // pra disparar reconnect + catch-up sem precisar de tick periódico de
-  // segurança. Sem WS conectado, QueueLoop volta pra pollIntervalMs normal.
+  // Com WS conectado, o QueueLoop entra em pause(): o push do WS dispara
+  // kick() imediato e o catch-up acontece em todo onConnected via
+  // kickFromReconnect(). v1.11.3: o paused volta a ter uma consulta de
+  // segurança a cada 75 s (QueueLoop.PAUSED_SAFETY_POLL_MS) — o ping/pong de
+  // protocolo é respondido pela Cloudflare sem passar pelo DO, então não prova
+  // que a campainha chega. Sem WS conectado, volta pra pollIntervalMs normal.
 } as const
 
 export type Config = typeof config

@@ -59,6 +59,10 @@ const PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000
 // observada no campo (Windows 11 + Wi-Fi AX2xx): NIC leva 2-5s pra revalidar
 // DHCP/DNS depois que sai de S0ix. 5s cobre com folga.
 const POST_RESUME_DELAY_MS = 5_000
+// v1.11.3 (#206): espera entre as tentativas de reconectar uma loja salva que
+// falhou no boot — dobra a cada falha, até 1 min.
+const BOOT_RETRY_BASE_MS = 5_000
+const BOOT_RETRY_MAX_MS = 60_000
 
 function createWindow(): void {
   // v1.11.2: altura limitada à área útil da tela. Com 620 px fixos e janela
@@ -444,34 +448,77 @@ if (!gotLock) {
     // Reconexão silenciosa de TODAS as lojas salvas. Falha de uma não impede
     // as outras: cada uma vira uma linha vermelha na lista, e a bandeja mostra
     // o pior estado. `agent_started` sai por loja, depois que ela autentica.
-    const saved: StoredAccount[] = await loadAccounts()
-    for (const acc of saved) {
+    //
+    // v1.11.3 (#206): a reconexão era UMA tentativa. O app abre com o Windows,
+    // muitas vezes antes do Wi-Fi, e a falha deixava a loja vermelha sem nada
+    // tentar de novo — nem com a internet de volta, nem pelo atalho (instância
+    // única: o atalho só mostra a mesma janela). A Oxe reinstalava todo dia
+    // (13–14/10). Agora repete com espera crescente (5 s, 10 s, 20 s… até
+    // 60 s) até conectar. Token recusado (401) não se repete: o lojista
+    // precisa colar um novo.
+    const reconectarSalva = async (acc: StoredAccount, tentativa: number): Promise<void> => {
+      const nome = acc.storeName || 'loja salva'
       try {
         const { storeName } = await connectStore(acc.refreshToken)
         connections.get(acc.storeId || '')?.telemetry.emit({ type: 'agent_started' })
         state.pushLog({
           time: formatLogTime(),
           level: 'info',
-          message: `Conectado à loja: ${storeName}`
+          message:
+            tentativa === 0
+              ? `Conectado à loja: ${storeName}`
+              : `Conectado à loja: ${storeName} (na ${tentativa + 1}ª tentativa).`
         })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        const nome = acc.storeName || 'loja salva'
+        if ((err as { status?: unknown } | null)?.status === 401) {
+          if (acc.storeId) {
+            state.upsertStore({
+              storeId: acc.storeId,
+              storeName: nome,
+              status: 'red',
+              statusMessage: 'Sessão expirada — gere um novo token no painel.'
+            })
+          }
+          state.pushLog({
+            time: formatLogTime(),
+            level: 'error',
+            message: `O servidor recusou o token de conexão (${nome}). Gere um novo token no painel da loja e cole aqui.`
+          })
+          return
+        }
+        const esperaMs = Math.min(BOOT_RETRY_BASE_MS * 2 ** tentativa, BOOT_RETRY_MAX_MS)
+        const esperaS = Math.round(esperaMs / 1000)
         if (acc.storeId) {
           state.upsertStore({
             storeId: acc.storeId,
             storeName: nome,
             status: 'red',
-            statusMessage: 'Sem conexão — tentando de novo no próximo ciclo.'
+            statusMessage: `Sem conexão — tentando de novo em ${esperaS} s.`
           })
         }
         state.pushLog({
           time: formatLogTime(),
           level: 'warn',
-          message: `Reconexão silenciosa falhou (${nome}): ${msg}`
+          message: `Reconexão silenciosa falhou (${nome}): ${msg}. Nova tentativa em ${esperaS} s.`
         })
+        setTimeout(() => {
+          void (async () => {
+            if (isQuitting) return
+            // Nesse meio-tempo o lojista pode ter colado o token de novo (a
+            // loja já conectou) ou removido a loja: aí não há o que repetir.
+            if (acc.storeId && connections.has(acc.storeId)) return
+            const atual = (await loadAccounts()).find((a) =>
+              acc.storeId ? a.storeId === acc.storeId : a.refreshToken === acc.refreshToken
+            )
+            if (!atual) return
+            await reconectarSalva(atual, tentativa + 1)
+          })()
+        }, esperaMs)
       }
     }
+    const saved: StoredAccount[] = await loadAccounts()
+    for (const acc of saved) await reconectarSalva(acc, 0)
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
