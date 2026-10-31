@@ -144,6 +144,7 @@ Uma instalação atende **N lojas** — o caso do lojista com duas lojas e uma i
 - Testes: `node --test scripts/teste-sem-fila.mjs` (saídas do `reg query` em pt-BR). Tela: `scripts/foto-sem-fila.mjs` (lista falsa com `PRINT_AGENT_FAKE_SEM_FILA=1`, que só vale fora do Windows).
 - Cada busca que muda deixa uma linha «Busca de impressoras: …» no log (portas Bluetooth de saída, pareadas, portas USB, filas, sem fila). Ela vai junto no «Enviar logs ao suporte»: é por ela que se vê, de longe, onde a impressora sumiu.
 - ⚠️ Os formatos do registro e o `printui` com `ntprint.inf` só se provam num Windows de verdade.
+- O assistente de modo ganhou «Agora não — ver a tela principal» (`onSkip`). Até a 1.11.4 ele era uma trava: sem modo salvo, a tela principal só abria depois de salvar um, e o teste depende do servidor. App sem conexão ficava preso no «Não saiu nada?» sem ver o status (Magrello Burger, #828). Os pedidos saem mesmo assim no modo derivado; o assistente volta na próxima abertura.
 
 ## Convenções e armadilhas
 
