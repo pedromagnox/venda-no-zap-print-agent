@@ -240,6 +240,10 @@ export function App(): JSX.Element {
             setForceWizard(false)
             setReselecting(true)
           }}
+          onSkip={() => {
+            setForceWizard(false)
+            setWizardClosed(true)
+          }}
         />
       </div>
     )

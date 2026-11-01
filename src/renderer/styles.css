@@ -718,3 +718,51 @@ button {
   font-size: 0.72rem;
   opacity: 0.75;
 }
+
+/* v1.12.0: impressoras encontradas sem fila (Bluetooth pareada / USB sem driver) */
+.sem-fila {
+  margin-top: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sem-fila-titulo {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.sem-fila-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sem-fila-texto {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+.sem-fila-texto strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sem-fila-texto span {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+.sem-fila-texto .sem-fila-aviso {
+  color: var(--color-warning);
+}
+.sem-fila-item .btn {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+}

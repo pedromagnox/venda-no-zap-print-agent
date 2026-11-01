@@ -133,6 +133,19 @@ Uma instalação atende **N lojas** — o caso do lojista com duas lojas e uma i
   - Teste: `scripts/teste-real-reimpressao.mjs`.
 - Teste de verdade dos três casos: `scripts/teste-real.mjs` (Electron em xvfb contra servidor falso, «internet» desligada no boot, campainha muda, `powerMonitor.emit('suspend')` pelo inspector do main; `--contraste` roda a versão velha). Pré-requisitos no cabeçalho do script.
 
+## Impressora sem fila: o app cria (v1.12.0)
+
+- `lib/printer/semFila.ts` acha a térmica que o Windows enxerga mas ainda não tem impressora (fila): **Bluetooth pareada** (porta COM de **saída** do SPP) e **USB sem driver** (porta USB00x do usbprint, ligada agora). Fica na tela da impressora, em «Encontradas neste computador», e atualiza sozinha a cada 5 s.
+- «Usar esta» cria a fila **Generic / Text Only** na porta (`rundll32 printui.dll,PrintUIEntry /if … /f ntprint.inf /u /q`), primeiro sem pedir nada e, se o Windows não deixar, com a janela de permissão (UAC, `Start-Process -Verb RunAs`). Quem decide se deu certo é o registro (`…\Control\Print\Printers\<nome>`).
+- A impressão **continua pela fila do Windows**: a térmica segue dividida com iFood e outros programas. Imprimir direto na porta foi descartado por isso.
+- Tudo pelo `reg query`, **sem PowerShell** (que não responde nos PCs fracos). Chaves: `Enum\BTHENUM` (PortName; saída = instância com o endereço do aparelho, entrada = 000000000000), `Services\BTHPORT\Parameters\Devices\<mac>` (Name em REG_BINARY UTF-8), `Control\DeviceClasses\{28d78fad-…}` (`#\Device Parameters`: Base Name + Port Number; `#\Control` Linked = 1 = ligada), `Control\Print\Printers` (Port).
+- USB de marca com driver próprio (Elgin, Bematech, Epson…) mostra o aviso para instalar o driver de quem também imprime por outro programa (99Food em modo gráfico precisa dele).
+- A v1.6–1.8 tinha um auto-instalador só de USB pelo PowerShell, aposentado na 1.10.5 junto com o YICHIP. Na época a fila Generic deixava a loja em modo pobre (sem corte, sem acento); desde a 1.10.4 o app manda RAW no modo do assistente, e isso deixou de valer.
+- Testes: `node --test scripts/teste-sem-fila.mjs` (saídas do `reg query` em pt-BR). Tela: `scripts/foto-sem-fila.mjs` (lista falsa com `PRINT_AGENT_FAKE_SEM_FILA=1`, que só vale fora do Windows).
+- Cada busca que muda deixa uma linha «Busca de impressoras: …» no log (portas Bluetooth de saída, pareadas, portas USB, filas, sem fila). Ela vai junto no «Enviar logs ao suporte»: é por ela que se vê, de longe, onde a impressora sumiu.
+- ⚠️ Os formatos do registro e o `printui` com `ntprint.inf` só se provam num Windows de verdade.
+- O assistente de modo ganhou «Agora não — ver a tela principal» (`onSkip`). Até a 1.11.4 ele era uma trava: sem modo salvo, a tela principal só abria depois de salvar um, e o teste depende do servidor. App sem conexão ficava preso no «Não saiu nada?» sem ver o status (Magrello Burger, #828). Os pedidos saem mesmo assim no modo derivado; o assistente volta na próxima abertura.
+
 ## Convenções e armadilhas
 
 - **Native modules ficam fora do asar** (`asarUnpack` no `electron-builder.yml`). Ao adicionar outro `.node`, repetir o padrão.

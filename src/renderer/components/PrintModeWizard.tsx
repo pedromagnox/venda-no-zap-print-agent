@@ -23,6 +23,11 @@ type Props = {
   onSupport: () => void
   /** Voltar pra troca de impressora (escape quando nada imprime). */
   onChangePrinter?: () => void
+  /** v1.12.0: fecha o assistente sem salvar modo e mostra a tela principal
+   *  (status da conexão). Sem isso, app sem servidor ficava preso aqui: o teste
+   *  busca o cupom no servidor e a tela principal só abria depois de salvar
+   *  um modo (Magrello Burger, #828). Os pedidos saem no modo derivado. */
+  onSkip?: () => void
 }
 
 type View =
@@ -47,7 +52,8 @@ export function PrintModeWizard({
   onSelectMode,
   onDone,
   onSupport,
-  onChangePrinter
+  onChangePrinter,
+  onSkip
 }: Props): JSX.Element {
   const [view, setView] = useState<View>({ kind: 'intro' })
 
@@ -86,6 +92,11 @@ export function PrintModeWizard({
       </div>
 
       <div className="printer-onboarding-card">{renderBody()}</div>
+      {onSkip && view.kind !== 'saving' && view.kind !== 'printing' && (
+        <button type="button" className="btn btn-ghost btn-block" onClick={onSkip}>
+          Agora não — ver a tela principal
+        </button>
+      )}
     </div>
   )
 
