@@ -201,3 +201,50 @@ test('Comando elevado: argumentos com espaço entre aspas, aspa simples dobrada'
     `Start-Process -FilePath 'rundll32.exe' -ArgumentList 'printui.dll,PrintUIEntry /b "Termica D''Ajuda" /m "Generic / Text Only"' -Verb RunAs -Wait -WindowStyle Hidden`
   )
 })
+
+test('Saídas REAIS de um Windows 11 26H2 pt-BR (01/11): COM8 de entrada fora, COM9 de saída lida, YICHIP desligada fora', () => {
+  const bthenum = crlf(`
+HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Enum\\BTHENUM\\{00001101-0000-1000-8000-00805f9b34fb}_LOCALMFG&0000\\7&65aa844&0&000000000000_00000000\\Device Parameters
+    PortName    REG_SZ    COM8
+
+HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Enum\\BTHENUM\\{00001101-0000-1000-8000-00805f9b34fb}_VID&000101da_PID&032f\\7&65aa844&0&4473D6F96DA8_C00000000\\Device Parameters
+    PortName    REG_SZ    COM9
+
+Fim da pesquisa: 2 correspondência(s) encontrada(s).
+`)
+  const devices = crlf(`
+HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\BTHPORT\\Parameters\\Devices\\4473d6f96da8
+    Name    REG_BINARY    5A6F6E652033303500
+
+Fim da pesquisa: 1 correspondência(s) encontrada(s).
+`)
+  const usb = crlf(`
+HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\DeviceClasses\\{28d78fad-5a12-11d1-ae5b-0000f803a8c2}\\##?#USB#VID_28E9&PID_0289#000000000004#{28d78fad-5a12-11d1-ae5b-0000f803a8c2}
+    DeviceInstance    REG_SZ    USB\\VID_28E9&PID_0289\\000000000004
+
+HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\DeviceClasses\\{28d78fad-5a12-11d1-ae5b-0000f803a8c2}\\##?#USB#VID_28E9&PID_0289#000000000004#{28d78fad-5a12-11d1-ae5b-0000f803a8c2}\\#
+
+HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\DeviceClasses\\{28d78fad-5a12-11d1-ae5b-0000f803a8c2}\\##?#USB#VID_28E9&PID_0289#000000000004#{28d78fad-5a12-11d1-ae5b-0000f803a8c2}\\#\\Device Parameters
+    Port Number    REG_DWORD    0x1
+    Port Description    REG_SZ    YICHIP-Printer demo
+    Base Name    REG_SZ    USB
+    Serial Number    REG_SZ    000000000004
+    Interface Number    REG_DWORD    0x0
+    recyclable    REG_NONE    
+`)
+  const printers = crlf(`
+HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Print\\Printers\\Microsoft Print to PDF
+    Port    REG_SZ    PORTPROMPT:
+
+HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Print\\Printers\\OneNote (Desktop)
+    Port    REG_SZ    nul:
+
+Fim da pesquisa: 2 correspondência(s) encontrada(s).
+`)
+  assert.deepEqual(parseBluetoothOutgoing(parseRegQuery(bthenum)), [{ mac: '4473d6f96da8', port: 'COM9' }])
+  assert.equal(parseBluetoothNames(parseRegQuery(devices)).get('4473d6f96da8'), 'Zone 305')
+  assert.deepEqual(parseUsbPrintPorts(parseRegQuery(usb)), [
+    { port: 'USB001', description: 'YICHIP-Printer demo', vid: '28E9', present: false }
+  ])
+  assert.ok(parsePrinterPorts(parseRegQuery(printers)).has('PORTPROMPT'))
+})
