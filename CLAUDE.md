@@ -146,6 +146,17 @@ Uma instalação atende **N lojas** — o caso do lojista com duas lojas e uma i
 - ⚠️ Os formatos do registro e o `printui` com `ntprint.inf` só se provam num Windows de verdade.
 - O assistente de modo ganhou «Agora não — ver a tela principal» (`onSkip`). Até a 1.11.4 ele era uma trava: sem modo salvo, a tela principal só abria depois de salvar um, e o teste depende do servidor. App sem conexão ficava preso no «Não saiu nada?» sem ver o status (Magrello Burger, #828). Os pedidos saem mesmo assim no modo derivado; o assistente volta na próxima abertura.
 
+## Microsoft Store (MSIX)
+
+- Build separado do .exe: `npm run dist:store` (`electron-builder.store.yml`, que estende o `electron-builder.yml` e troca o alvo por `appx`). Só roda no Windows (makeappx), então sai do workflow `.github/workflows/store.yml` (runner `windows-latest`), disparado por push no ramo `feat/store` ou à mão. O pacote fica no artefato `msix-store`.
+- Identidade da Store (Partner Center): `VendanoZap.VendanoZapImpresso`, publisher `CN=01F755B9-38FC-4815-990B-0E26A4D36EAA`, nome de família `VendanoZap.VendanoZapImpresso_6h62scjbd05x8`, Store ID `9NP27QFD67Q4`. O `displayName` tem que ser igual ao nome reservado («Venda no Zap Impressão»).
+- O pacote vai sem assinatura: a Store assina depois da certificação. Para teste local, só com certificado de teste cujo Subject seja o publisher, e esse certificado nunca entra no repositório.
+- Versão = a do `package.json` + `.0` (ex.: 1.12.0.0). A Store recusa revisão ≠ 0, e cada envio precisa de uma versão maior que a anterior.
+- Iniciar com o Windows: `StartupTask` (`addAutoLaunchExtension`). No pacote, `process.windowsStore` é true: o `applyAutoStart` não grava no registro, e o app abre só na bandeja se o Windows ligou há menos de 5 min (o StartupTask não passa `--hidden`). Com Inicialização Rápida, o tempo ligado não zera, e a janela pode aparecer.
+- O ping manda `canal: 'store' | 'exe'`.
+- Tiles em `build/appx/`, gerados do `build/icon.png` (fundo #F46A25).
+- Dados: tudo em `app.getPath('userData')`. A pasta do app no pacote é só leitura.
+
 ## Convenções e armadilhas
 
 - **Native modules ficam fora do asar** (`asarUnpack` no `electron-builder.yml`). Ao adicionar outro `.node`, repetir o padrão.
