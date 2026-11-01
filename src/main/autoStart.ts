@@ -1,4 +1,5 @@
 import { app } from 'electron'
+import { uptime } from 'node:os'
 
 // Wrapper sobre app.setLoginItemSettings com no-op em dev.
 //
@@ -11,6 +12,7 @@ import { app } from 'electron'
 
 export function applyAutoStart(autoStart: boolean): void {
   if (!app.isPackaged) return
+  if (process.windowsStore) return
   app.setLoginItemSettings({
     openAtLogin: autoStart,
     args: ['--hidden']
@@ -18,5 +20,6 @@ export function applyAutoStart(autoStart: boolean): void {
 }
 
 export function startedHidden(): boolean {
-  return process.argv.includes('--hidden')
+  if (process.argv.includes('--hidden')) return true
+  return process.windowsStore === true && uptime() < 300
 }

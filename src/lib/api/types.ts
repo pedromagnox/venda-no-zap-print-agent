@@ -131,4 +131,5 @@ export type PingRequest = {
   /** v1.11.2: tem impressora escolhida? Alimenta o aviso do painel "app aberto,
    *  mas sem impressora" (antes o painel mostrava "Online" e pronto). */
   printerConfigured?: boolean
+  canal?: 'store' | 'exe'
 }

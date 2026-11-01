@@ -1,0 +1,31 @@
+extends: ./electron-builder.yml
+
+directories:
+  buildResources: build
+  output: release/store-${version}
+
+win:
+  icon: build/icon.png
+  executableName: Venda no Zap Print Agent
+  target:
+    - target: appx
+      arch:
+        - x64
+
+appx:
+  identityName: VendanoZap.VendanoZapImpresso
+  publisher: CN=01F755B9-38FC-4815-990B-0E26A4D36EAA
+  publisherDisplayName: Venda no Zap
+  displayName: Venda no Zap Impressão
+  applicationId: VendaNoZapImpressao
+  languages:
+    - pt-BR
+  addAutoLaunchExtension: true
+  backgroundColor: "#F46A25"
+  showNameOnTiles: false
+  minVersion: 10.0.17763.0
+  maxVersionTested: 10.0.26100.0
+  setBuildNumber: false
+  artifactName: VendaNoZap-Impressao-Store-${version}.msix
+
+publish: null

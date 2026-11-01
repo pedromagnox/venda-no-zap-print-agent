@@ -74,6 +74,7 @@ export class Heartbeat {
         hostname: this.deps.device.hostname,
         machineIdHash: this.deps.device.machineIdHash,
         agentVersion: this.deps.appVersion,
+        canal: process.windowsStore ? 'store' : 'exe',
         ...(hardwareInfo ? { hardwareInfo } : {}),
         ...(this.deps.getPrinterConfigured
           ? { printerConfigured: this.deps.getPrinterConfigured() }
