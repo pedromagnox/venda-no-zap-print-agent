@@ -143,7 +143,13 @@ Uma instalação atende **N lojas** — o caso do lojista com duas lojas e uma i
 - A v1.6–1.8 tinha um auto-instalador só de USB pelo PowerShell, aposentado na 1.10.5 junto com o YICHIP. Na época a fila Generic deixava a loja em modo pobre (sem corte, sem acento); desde a 1.10.4 o app manda RAW no modo do assistente, e isso deixou de valer.
 - Testes: `node --test scripts/teste-sem-fila.mjs` (saídas do `reg query` em pt-BR). Tela: `scripts/foto-sem-fila.mjs` (lista falsa com `PRINT_AGENT_FAKE_SEM_FILA=1`, que só vale fora do Windows).
 - Cada busca que muda deixa uma linha «Busca de impressoras: …» no log (portas Bluetooth de saída, pareadas, portas USB, filas, sem fila). Ela vai junto no «Enviar logs ao suporte»: é por ela que se vê, de longe, onde a impressora sumiu.
-- ⚠️ Os formatos do registro e o `printui` com `ntprint.inf` só se provam num Windows de verdade.
+- Medido num Windows 11 26H2 pt-BR real (01/11, sessão «Impressora - ambiente Windows»):
+  - não existe `#\Control\Linked`, nem com a impressora ligada. O «ligada agora» vem de `Services\usbprint\Enum` (valores 0, 1… = DeviceInstance), cruzado com o DeviceInstance da interface;
+  - «Port Number» some da interface de aparelho ausente;
+  - térmica que não informa o modelo vira «UnknownPrinter»: o nome é o FriendlyName de `Enum\<DeviceInstance>` (ex.: «Gertec G250»);
+  - fone e headset também têm COM de saída (SPP). O filtro é o COD de `BTHPORT\…\Devices\<mac>`: classe principal 0x04 (áudio), entre outras, sai; 0x06 (imaging) e COD genérico ficam;
+  - o `reg.exe` sai no code page OEM (cp850): o texto traduzido e os acentos chegam tortos; as chaves, o hex e COMxx são ASCII. Exit 1 quando a chave não existe ou o /v não acha nada.
+- ⚠️ O `printui` com `ntprint.inf` e a criação da fila com UAC ainda só se provam num Windows de verdade.
 - O assistente de modo ganhou «Agora não — ver a tela principal» (`onSkip`). Até a 1.11.4 ele era uma trava: sem modo salvo, a tela principal só abria depois de salvar um, e o teste depende do servidor. App sem conexão ficava preso no «Não saiu nada?» sem ver o status (Magrello Burger, #828). Os pedidos saem mesmo assim no modo derivado; o assistente volta na próxima abertura.
 
 ## Microsoft Store (MSIX)

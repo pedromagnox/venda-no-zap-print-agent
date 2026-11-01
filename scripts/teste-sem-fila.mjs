@@ -12,6 +12,10 @@ import {
   parsePrinterPorts,
   montarSemFila,
   nomeDeFila,
+  nomeDaUsb,
+  parseBluetoothClasses,
+  podeSerImpressora,
+  parseUsbprintPresentes,
   decodeRegBinaryName,
   comandoElevado,
   printuiArgs
@@ -244,7 +248,94 @@ Fim da pesquisa: 2 correspondência(s) encontrada(s).
   assert.deepEqual(parseBluetoothOutgoing(parseRegQuery(bthenum)), [{ mac: '4473d6f96da8', port: 'COM9' }])
   assert.equal(parseBluetoothNames(parseRegQuery(devices)).get('4473d6f96da8'), 'Zone 305')
   assert.deepEqual(parseUsbPrintPorts(parseRegQuery(usb)), [
-    { port: 'USB001', description: 'YICHIP-Printer demo', vid: '28E9', present: false }
+    { port: 'USB001', description: 'YICHIP-Printer demo', vid: '28E9', present: false, deviceInstance: 'USB\\VID_28E9&PID_0289\\000000000004' }
   ])
   assert.ok(parsePrinterPorts(parseRegQuery(printers)).has('PORTPROMPT'))
+})
+
+test('Real (01/11): Gertec G250 ligada SEM fila aparece pelo usbprint\\Enum (no 26H2 não existe #\\Control\\Linked)', () => {
+  const G = '{28d78fad-5a12-11d1-ae5b-0000f803a8c2}'
+  const base = `HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\DeviceClasses\\${G}`
+  const usb = crlf(`
+${base}\\##?#USB#VID_1753&PID_0B01#12345678#${G}
+    DeviceInstance    REG_SZ    USB\\VID_1753&PID_0B01\\12345678
+
+${base}\\##?#USB#VID_1753&PID_0B01#12345678#${G}\\#
+
+${base}\\##?#USB#VID_1753&PID_0B01#12345678#${G}\\#\\Device Parameters
+    Port Number    REG_DWORD    0x2
+    Port Description    REG_SZ    UnknownPrinter
+    Base Name    REG_SZ    USB
+    Serial Number    REG_SZ    12345678
+    Interface Number    REG_DWORD    0x0
+
+${base}\\##?#USB#VID_28E9&PID_0289#000000000004#${G}
+    DeviceInstance    REG_SZ    USB\\VID_28E9&PID_0289\\000000000004
+
+${base}\\##?#USB#VID_28E9&PID_0289#000000000004#${G}\\#
+
+${base}\\##?#USB#VID_28E9&PID_0289#000000000004#${G}\\#\\Device Parameters
+    Port Description    REG_SZ    YICHIP-Printer demo
+    Base Name    REG_SZ    USB
+    Serial Number    REG_SZ    000000000004
+    Interface Number    REG_DWORD    0x0
+`)
+  const en = crlf(`
+HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\usbprint\\Enum
+    Count    REG_DWORD    0x1
+    NextInstance    REG_DWORD    0x1
+    0    REG_SZ    USB\\VID_1753&PID_0B01\\12345678
+`)
+  const presentes = parseUsbprintPresentes(parseRegQuery(en))
+  assert.deepEqual([...presentes], ['USB\\VID_1753&PID_0B01\\12345678'])
+  const ports = parseUsbPrintPorts(parseRegQuery(usb), presentes)
+  assert.deepEqual(ports.map((p) => [p.port, p.present]), [['USB002', true]])
+  ports[0].friendlyName = 'Gertec G250'
+  const lista = montarSemFila({ btOutgoing: [], btNames: new Map(), usbPorts: ports, printersByPort: new Map() })
+  assert.deepEqual(lista.map((i) => [i.port, i.label, i.suggestedQueueName]), [['USB002', 'Gertec G250', 'Termica Gertec G250']])
+  const comFila = montarSemFila({ btOutgoing: [], btNames: new Map(), usbPorts: ports, printersByPort: new Map([['USB002', ['G250']]]) })
+  assert.deepEqual(comFila, [])
+})
+
+test('usbprint\\Enum vazio = nada ligado; sem a chave cai no Linked', () => {
+  const vazio = parseUsbprintPresentes(parseRegQuery(crlf(`
+HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\usbprint\\Enum
+    Count    REG_DWORD    0x0
+    NextInstance    REG_DWORD    0x0
+`)))
+  assert.equal(vazio.size, 0)
+  assert.equal(parseUsbprintPresentes([]), undefined)
+})
+
+test('Nome da USB: «UnknownPrinter» não serve', () => {
+  assert.equal(nomeDaUsb({ port: 'USB002', description: 'UnknownPrinter', vid: '1753', present: true, deviceInstance: null }), 'Impressora no cabo USB')
+  assert.equal(nomeDaUsb({ port: 'USB002', description: 'UnknownPrinter', vid: '1753', present: true, deviceInstance: null, friendlyName: 'Gertec G250' }), 'Gertec G250')
+  assert.equal(nomeDaUsb({ port: 'USB001', description: 'POS80 Printer USB', vid: '0416', present: true, deviceInstance: null }), 'POS80 Printer USB')
+})
+
+test('Real (01/11): headset Zone 305 (COD 0x240404, Áudio) não entra; impressora 0x040680 e COD genérico entram', () => {
+  const cod = parseBluetoothClasses(parseRegQuery(crlf(`
+HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\BTHPORT\\Parameters\\Devices\\4473d6f96da8
+    COD    REG_DWORD    0x240404
+
+HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\BTHPORT\\Parameters\\Devices\\dc0d30f859ab
+    COD    REG_DWORD    0x40680
+
+Fim da pesquisa: 2 correspondência(s) encontrada(s).
+`)))
+  assert.equal(cod.get('4473d6f96da8'), 0x240404)
+  assert.equal(podeSerImpressora(0x240404), false)
+  assert.equal(podeSerImpressora(0x040680), true)
+  assert.equal(podeSerImpressora(0x001f00), true)
+  assert.equal(podeSerImpressora(0x000000), true)
+  assert.equal(podeSerImpressora(undefined), true)
+  assert.equal(podeSerImpressora(0x5a020c), false)
+  const lista = montarSemFila({
+    btOutgoing: [{ mac: '4473d6f96da8', port: 'COM9' }, { mac: 'dc0d30f859ab', port: 'COM3' }],
+    btNames: new Map([['4473d6f96da8', 'Zone 305'], ['dc0d30f859ab', 'KPrinter_ab28']]),
+    btClasses: cod,
+    usbPorts: [],
+    printersByPort: new Map()
+  })
+  assert.deepEqual(lista.map((i) => [i.port, i.label]), [['COM3', 'KPrinter_ab28']])
 })
