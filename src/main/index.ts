@@ -32,6 +32,15 @@ import { Mutex } from 'async-mutex'
 import { registerIpc } from './ipc'
 import { createTray, type TrayController } from './tray'
 import { applyAutoStart, startedHidden } from './autoStart'
+import {
+  antigoInstalado,
+  fecharAppAntigo,
+  iniciarRotinasDaStore,
+  instalandoAtualizacao,
+  reconferirAoFocar,
+  voltouDeAtualizacao
+} from './windowsStore'
+import { doAppAntigo } from '@lib/windowsStore/regras'
 
 const isDev = !app.isPackaged
 
@@ -91,7 +100,10 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     // Quando o Windows lança via auto-start (com --hidden), só sobe na bandeja.
-    if (!startedHidden()) mainWindow?.show()
+    if (!startedHidden() && !(process.windowsStore && voltouDeAtualizacao())) mainWindow?.show()
+  })
+  mainWindow.on('focus', () => {
+    if (process.windowsStore) reconferirAoFocar()
   })
   mainWindow.on('close', (event) => {
     if (!isQuitting) {
@@ -114,9 +126,17 @@ function createWindow(): void {
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
-  app.quit()
+  if (process.windowsStore && !process.argv.includes('--depois-do-antigo') && antigoInstalado()) {
+    void fecharAppAntigo().then((fechados) => {
+      if (fechados > 0) app.relaunch({ args: [...process.argv.slice(1), '--depois-do-antigo'] })
+      setTimeout(() => app.exit(0), 1_500)
+    })
+  } else {
+    app.quit()
+  }
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
+    if (process.windowsStore && (doAppAntigo(argv[0]) || instalandoAtualizacao() || voltouDeAtualizacao())) return
     if (!mainWindow) return
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.show()
@@ -362,6 +382,15 @@ if (!gotLock) {
       },
       () => mainWindow
     )
+
+    if (process.windowsStore) {
+      iniciarRotinasDaStore({
+        state,
+        ocupado: () => [...connections.values()].some((c) => c.ocupada()),
+        pendentesLocais: () => countAll('claimed_items'),
+        log: (level, message) => state.pushLog({ time: formatLogTime(), level, message })
+      })
+    }
 
     state.pushLog({
       time: formatLogTime(),

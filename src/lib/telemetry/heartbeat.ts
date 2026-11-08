@@ -23,6 +23,7 @@ export type HeartbeatDeps = {
   /** v1.11.3: chamado a cada ping que deu certo (rede e servidor no ar) — é
    *  onde o vigia da StoreConnection confere se a busca de pedidos parou. */
   onPingOk?: () => void
+  getInicioAutomatico?: () => string | null
 }
 
 export class Heartbeat {
@@ -78,7 +79,8 @@ export class Heartbeat {
         ...(hardwareInfo ? { hardwareInfo } : {}),
         ...(this.deps.getPrinterConfigured
           ? { printerConfigured: this.deps.getPrinterConfigured() }
-          : {})
+          : {}),
+        ...(this.deps.getInicioAutomatico?.() ? { inicioAutomatico: this.deps.getInicioAutomatico()! } : {})
       })
       try {
         this.deps.onPingOk?.()

@@ -162,6 +162,12 @@ Uma instalação atende **N lojas** — o caso do lojista com duas lojas e uma i
 - O ping manda `canal: 'store' | 'exe'`.
 - Tiles em `build/appx/`, gerados do `build/icon.png` (fundo #F46A25).
 - Dados: tudo em `app.getPath('userData')`. A pasta do app no pacote é só leitura.
+- **v1.13.0 (só no pacote da Store, `src/main/windowsStore.ts` + `src/lib/windowsStore/regras.ts`).** Tudo pelo PowerShell com as APIs do Windows (WinRT), rodando como filho do app, que herda a identidade do pacote:
+  - **Iniciar com o Windows:** lê o `StartupTask` (`SlackStartup`) 1 min depois de abrir e a cada 6 h. Se está `Disabled` e a preferência é ligar, religa sozinho (`RequestEnableAsync`, sem pergunta). Se está `DisabledByUser` (desligado no Gerenciador de Tarefas ou em Configurações), o Windows não deixa religar por código: o app avisa no topo («Ligar») e abre `ms-settings:startupapps`. O switch «Iniciar com o Windows» liga e desliga a tarefa. O estado vai no ping (`inicioAutomatico`) → `print_agent_devices.inicio_automatico` → aviso no card do app em Configurações e no «aparelhos» da Atendente.
+  - **Atualização silenciosa:** 10 min depois de abrir e a cada 6 h, procura versão nova na Store. Se `CanSilentlyDownloadStorePackageUpdates`, baixa em segundo plano e só instala com o app quieto (nada impresso há 10 min, nada em andamento, fila local vazia; tenta por até 6 h). Antes de instalar, grava `atualizacao-pela-store.json` no userData e registra a tarefa agendada «Venda no Zap Impressao - reabrir depois de atualizar» (3 e 10 min depois, `explorer.exe shell:AppsFolder\VendanoZap.VendanoZapImpresso_6h62scjbd05x8!VendaNoZapImpressao`): a instalação fecha o app, e o Windows não garante reabrir. Sem conseguir registrar a tarefa, não instala. Ao abrir com a marca, apaga a tarefa e a marca, não mostra a janela e registra «Atualizado pela Microsoft Store: X → Y».
+  - **App antigo:** com o .exe em `%LOCALAPPDATA%\Programs\venda-no-zap-print-agent`, o app avisa no topo para desinstalar («Abrir aplicativos instalados»). Os dois usam a mesma pasta de dados, então só um abre: se o antigo segura a trava, o da Store fecha os processos dele (caminho fora de `WindowsApps`) e reabre com `--depois-do-antigo`; se o antigo tenta abrir depois, é ignorado.
+  - ⚠️ A reabertura depois da atualização e o fechamento do antigo só se provam num Windows de verdade, com duas versões na Store (voo de pacote no Partner Center).
+  - Testes: `node --test scripts/teste-windows-store.mjs`.
 
 ## Convenções e armadilhas
 

@@ -112,7 +112,23 @@ export type AgentSnapshot = {
    *  o gate de onboarding e a bandeja usam. */
   stores: StoreConnectionInfo[]
   version: string
+  windowsStore: EstadoDaStore | null
 }
+
+export type InicioAutomatico =
+  | 'ligado'
+  | 'ligado_pela_politica'
+  | 'desligado'
+  | 'desligado_pelo_usuario'
+  | 'desligado_pela_politica'
+  | 'desconhecido'
+
+export type EstadoDaStore = {
+  inicioAutomatico: InicioAutomatico
+  antigoInstalado: boolean
+}
+
+export type PaginaDoWindows = 'inicializacao' | 'aplicativos'
 
 export type StoreConnectionInfo = {
   storeId: string

@@ -188,6 +188,7 @@ export function makeInitialSnapshot(version: string): AgentSnapshot {
     preferences: { autoStart: true },
     connection: { connected: false, storeName: null, storeId: null },
     stores: [],
-    version
+    version,
+    windowsStore: null
   }
 }

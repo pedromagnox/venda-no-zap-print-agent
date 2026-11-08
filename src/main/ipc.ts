@@ -14,6 +14,7 @@ import * as semFila from '@lib/printer/semFila'
 import { writeJsonFile } from '@lib/storage/jsonStore'
 import { formatLogTime } from '@shared/logTime'
 import { applyAutoStart } from './autoStart'
+import { abrirConfiguracaoDoWindows, aplicarInicioAutomatico } from './windowsStore'
 import type { StoreConnection } from './storeConnection'
 import { randomUUID } from 'node:crypto'
 import type {
@@ -23,7 +24,8 @@ import type {
   PrinterConfig,
   Preferences,
   PrinterType,
-  PrintModeSelection
+  PrintModeSelection,
+  PaginaDoWindows
 } from '@shared/types'
 
 export type IpcDeps = {
@@ -224,13 +226,18 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
     }
   )
 
+  ipcMain.handle('agent:abrirConfiguracaoDoWindows', (_e, pagina: PaginaDoWindows) => {
+    abrirConfiguracaoDoWindows(pagina === 'aplicativos' ? 'aplicativos' : 'inicializacao')
+  })
+
   ipcMain.handle(
     'agent:setPreferences',
     async (_e, prefs: Preferences): Promise<{ ok: boolean; error?: string }> => {
       state.setPreferences(prefs)
       try {
         await writeJsonFile('preferences', prefs)
-        applyAutoStart(prefs.autoStart)
+        if (process.windowsStore) void aplicarInicioAutomatico(prefs.autoStart)
+        else applyAutoStart(prefs.autoStart)
         return { ok: true }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)

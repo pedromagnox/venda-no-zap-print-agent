@@ -8,6 +8,7 @@ import { HistorySection } from './components/sections/HistorySection'
 import { LogsSection } from './components/sections/LogsSection'
 import { ConnectionSection } from './components/sections/ConnectionSection'
 import { PreferencesSection } from './components/sections/PreferencesSection'
+import { AvisosDoWindows } from './components/AvisosDoWindows'
 import type { AgentSnapshot, PrinterConfig } from '@shared/types'
 import { isPrinterConfigured } from './lib/printerConfig'
 
@@ -267,6 +268,17 @@ export function App(): JSX.Element {
       </header>
 
       <main className="app-body">
+        <AvisosDoWindows
+          estado={snap.windowsStore}
+          onLigarInicio={async () => {
+            const r = await window.printAgent.setPreferences({ ...snap.preferences, autoStart: true })
+            if (!r.ok) alert(`Não foi possível salvar as preferências: ${r.error}`)
+          }}
+          onAbrirAplicativos={() => {
+            void window.printAgent.abrirConfiguracaoDoWindows('aplicativos')
+          }}
+        />
+
         <ConnectionSection
           stores={snap.stores}
           status={snap.status}
@@ -298,6 +310,7 @@ export function App(): JSX.Element {
 
         <PreferencesSection
           prefs={snap.preferences}
+          inicioAutomatico={snap.windowsStore?.inicioAutomatico ?? null}
           onChange={async (next) => {
             const r = await window.printAgent.setPreferences(next)
             if (!r.ok) alert(`Não foi possível salvar as preferências: ${r.error}`)

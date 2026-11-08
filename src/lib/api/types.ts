@@ -132,4 +132,5 @@ export type PingRequest = {
    *  mas sem impressora" (antes o painel mostrava "Online" e pronto). */
   printerConfigured?: boolean
   canal?: 'store' | 'exe'
+  inicioAutomatico?: string
 }

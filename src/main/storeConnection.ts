@@ -94,7 +94,8 @@ export class StoreConnection {
       appVersion: deps.appVersion,
       intervalMs: config.heartbeatIntervalMs,
       getPrinterConfigured: () => hasPrinterTarget(deps.getPrinterConfig()),
-      onPingOk: () => this.vigiar()
+      onPingOk: () => this.vigiar(),
+      getInicioAutomatico: () => deps.state.get().windowsStore?.inicioAutomatico ?? null
     })
 
     this.queueLoop = new QueueLoop({
@@ -203,6 +204,10 @@ export class StoreConnection {
     }
     this.wsClient.stop()
     this.wsClient.start()
+  }
+
+  ocupada(): boolean {
+    return this.queueLoop.isBusy()
   }
 
   /** v1.11.3: vigia, a cada ping que deu certo (rede e servidor no ar). Religa

@@ -3,6 +3,7 @@ import type {
   AgentSnapshot,
   ImpressoraSemFila,
   InstalarImpressoraResult,
+  PaginaDoWindows,
   PrinterConfig,
   Preferences,
   PrintModeSelection,
@@ -57,7 +58,10 @@ const api = {
 
   /** Cria a impressora «Generic / Text Only» na porta (pode abrir a permissão do Windows). */
   instalarImpressora: (item: ImpressoraSemFila): Promise<InstalarImpressoraResult> =>
-    ipcRenderer.invoke('agent:instalarImpressora', item)
+    ipcRenderer.invoke('agent:instalarImpressora', item),
+
+  abrirConfiguracaoDoWindows: (pagina: PaginaDoWindows): Promise<void> =>
+    ipcRenderer.invoke('agent:abrirConfiguracaoDoWindows', pagina)
 }
 
 contextBridge.exposeInMainWorld('printAgent', api)
