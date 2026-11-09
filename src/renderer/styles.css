@@ -83,16 +83,17 @@ button {
 }
 
 .title-bar {
-  /* Casa com o titleBarOverlay.height definido em main/index.ts.
-     env(titlebar-area-*) garante que a área não invada os botões nativos
-     min/close que o Windows desenha à direita. */
-  height: env(titlebar-area-height, 36px);
-  width: env(titlebar-area-width, 100%);
+  /* Laranja até a borda direita, por baixo dos botões do titleBarOverlay
+     (main/index.ts), e 1px mais alta que eles: com a escala do Windows o
+     arredondamento deixava um «dente» branco embaixo dos botões. O padding
+     da direita (env(titlebar-area-*)) tira o texto de baixo deles. */
+  height: calc(env(titlebar-area-height, 36px) + 1px);
+  width: 100%;
   background: var(--brand-primary);
   color: #fff;
   display: flex;
   align-items: center;
-  padding: 0 var(--space-3);
+  padding: 0 calc(100% - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100%) + var(--space-3)) 0 var(--space-3);
   -webkit-app-region: drag;
   user-select: none;
   font-family: var(--font-display);

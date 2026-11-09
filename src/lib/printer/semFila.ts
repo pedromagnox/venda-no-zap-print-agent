@@ -29,6 +29,8 @@ const KEY_BTHENUM = 'HKLM\\SYSTEM\\CurrentControlSet\\Enum\\BTHENUM'
 const KEY_BT_DEVICES = 'HKLM\\SYSTEM\\CurrentControlSet\\Services\\BTHPORT\\Parameters\\Devices'
 const KEY_USBPRINT = `HKLM\\SYSTEM\\CurrentControlSet\\Control\\DeviceClasses\\${USBPRINT_GUID}`
 const KEY_PRINTERS = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Print\\Printers'
+const KEY_USBPRINT_ENUM = 'HKLM\\SYSTEM\\CurrentControlSet\\Services\\usbprint\\Enum'
+const KEY_ENUM = 'HKLM\\SYSTEM\\CurrentControlSet\\Enum'
 
 export const GENERIC_TEXT_ONLY = 'Generic / Text Only'
 
@@ -121,26 +123,62 @@ export function parseBluetoothNames(keys: RegKey[]): Map<string, string> {
   return names
 }
 
+/** Classe do aparelho (COD) pelo endereço. */
+export function parseBluetoothClasses(keys: RegKey[]): Map<string, number> {
+  const classes = new Map<string, number>()
+  for (const k of keys) {
+    const m = /\\Devices\\([0-9a-f]{12})$/i.exec(k.path)
+    if (!m) continue
+    const cod = dword(valueOf(k, 'COD'))
+    if (cod !== null) classes.set(m[1]!.toLowerCase(), cod)
+  }
+  return classes
+}
+
+// Classe principal do COD que nunca é impressora: computador, celular, rede,
+// áudio (fone, caixa de som), periférico de entrada, vestível, brinquedo, saúde.
+// Impressora vem como 0x06 (Imaging), mas térmica barata às vezes manda COD
+// genérico (0x00 ou 0x1F): essas ficam.
+const CLASSES_QUE_NAO_SAO_IMPRESSORA = new Set([0x01, 0x02, 0x03, 0x04, 0x05, 0x07, 0x08, 0x09])
+
+export function podeSerImpressora(cod: number | undefined): boolean {
+  if (cod === undefined) return true
+  return !CLASSES_QUE_NAO_SAO_IMPRESSORA.has((cod >> 8) & 0x1f)
+}
+
 // ---------------------------------------------------------------------------
 // USB (usbprint)
 // ---------------------------------------------------------------------------
 
-export type UsbPrintPort = { port: string; description: string | null; vid: string | null; present: boolean }
+export type UsbPrintPort = {
+  port: string
+  description: string | null
+  vid: string | null
+  present: boolean
+  deviceInstance: string | null
+  friendlyName?: string | null
+}
 
-/** Portas USB00x que o usbprint criou. Cada interface tem `#\Device Parameters`
- *  (Base Name + Port Number + Port Description) e, se o aparelho está ligado
- *  agora, `#\Control` com Linked = 1. */
-export function parseUsbPrintPorts(keys: RegKey[]): UsbPrintPort[] {
-  type Acc = { base?: string; num?: number; desc?: string; linked?: boolean; vid?: string }
+/** Portas USB00x que o usbprint criou. Cada interface tem `#\\Device Parameters`
+ *  (Base Name + Port Number + Port Description) e, na própria chave, o
+ *  DeviceInstance do aparelho. «Ligada agora» vem do `Services\\usbprint\\Enum`
+ *  (`presentes`): no Windows 11 26H2 não existe o `#\\Control\\Linked`, nem com
+ *  a impressora conectada (medido num PC real em 01/11). O Linked fica só como
+ *  reserva para quando o Enum não puder ser lido. */
+export function parseUsbPrintPorts(keys: RegKey[], presentes?: Set<string>): UsbPrintPort[] {
+  type Acc = { base?: string; num?: number; desc?: string; linked?: boolean; vid?: string; inst?: string }
   const byIface = new Map<string, Acc>()
   for (const k of keys) {
-    const m = /\\(##\?#USB#[^\\]+)\\#\\(Device Parameters|Control)$/i.exec(k.path)
-    if (!m) continue
-    const iface = m[1]!
+    const raiz = /\\(##\?#USB#[^\\]+)$/i.exec(k.path)
+    const sub = /\\(##\?#USB#[^\\]+)\\#\\(Device Parameters|Control)$/i.exec(k.path)
+    const iface = raiz?.[1] ?? sub?.[1]
+    if (!iface) continue
     const acc = byIface.get(iface) ?? {}
     const vid = /VID_([0-9A-F]{4})/i.exec(iface)
     if (vid) acc.vid = vid[1]!.toUpperCase()
-    if (m[2]!.toLowerCase() === 'device parameters') {
+    if (raiz) {
+      acc.inst = valueOf(k, 'DeviceInstance') ?? acc.inst
+    } else if (sub![2]!.toLowerCase() === 'device parameters') {
       acc.base = valueOf(k, 'Base Name') ?? acc.base
       acc.num = dword(valueOf(k, 'Port Number')) ?? acc.num
       acc.desc = valueOf(k, 'Port Description') ?? acc.desc
@@ -152,14 +190,28 @@ export function parseUsbPrintPorts(keys: RegKey[]): UsbPrintPort[] {
   const out: UsbPrintPort[] = []
   for (const acc of byIface.values()) {
     if (!acc.base || acc.num === undefined) continue
+    const inst = acc.inst?.trim().toUpperCase() || null
     out.push({
       port: `${acc.base.toUpperCase()}${String(acc.num).padStart(3, '0')}`,
       description: acc.desc?.trim() || null,
       vid: acc.vid ?? null,
-      present: acc.linked === true
+      present: presentes && inst ? presentes.has(inst) : acc.linked === true,
+      deviceInstance: inst
     })
   }
   return out
+}
+
+/** Aparelhos que o usbprint tem carregados agora (valores 0, 1, 2… da chave
+ *  `Services\\usbprint\\Enum`). `undefined` quando a chave não pôde ser lida. */
+export function parseUsbprintPresentes(keys: RegKey[]): Set<string> | undefined {
+  const k = keys.find((x) => /\\usbprint\\Enum$/i.test(x.path))
+  if (!k) return undefined
+  const set = new Set<string>()
+  for (const v of k.values) {
+    if (/^\d+$/.test(v.name) && v.data) set.add(v.data.trim().toUpperCase())
+  }
+  return set
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +247,7 @@ export function normalizePort(port: string): string {
 export function montarSemFila(input: {
   btOutgoing: BluetoothSaida[]
   btNames: Map<string, string>
+  btClasses?: Map<string, number>
   usbPorts: UsbPrintPort[]
   printersByPort: Map<string, string[]>
 }): ImpressoraSemFila[] {
@@ -204,6 +257,7 @@ export function montarSemFila(input: {
     // Só aparelho que continua pareado (a chave em BTHPORT some ao despareá-lo).
     const name = input.btNames.get(bt.mac)
     if (!name) continue
+    if (!podeSerImpressora(input.btClasses?.get(bt.mac))) continue
     if (input.printersByPort.has(bt.port) || vistos.has(bt.port)) continue
     vistos.add(bt.port)
     out.push({
@@ -219,17 +273,28 @@ export function montarSemFila(input: {
     if (!usb.present) continue
     if (input.printersByPort.has(usb.port) || vistos.has(usb.port)) continue
     vistos.add(usb.port)
-    const label = usb.description || 'Impressora no cabo USB'
+    const label = nomeDaUsb(usb)
     out.push({
       kind: 'usb',
       port: usb.port,
       label,
       detail: `Cabo USB · sem driver (${usb.port})`,
-      suggestedQueueName: nomeDeFila(usb.description ? usb.description : `USB ${usb.port}`),
+      suggestedQueueName: nomeDeFila(nomeDaUsb(usb) === 'Impressora no cabo USB' ? `USB ${usb.port}` : nomeDaUsb(usb)),
       vid: usb.vid
     })
   }
   return out
+}
+
+/** Nome que o lojista reconhece: o FriendlyName do aparelho USB («Gertec
+ *  G250»), senão a descrição da porta. «UnknownPrinter» (impressora que não
+ *  informa o modelo, visto na Gertec G250) não serve. */
+export function nomeDaUsb(usb: UsbPrintPort): string {
+  for (const n of [usb.friendlyName, usb.description]) {
+    const t = (n ?? '').trim()
+    if (t && !/^unknown\s*printer$/i.test(t)) return t
+  }
+  return 'Impressora no cabo USB'
 }
 
 /** Nome da fila que vamos criar: «Termica <aparelho>», só com caracteres que o
@@ -248,9 +313,9 @@ export function nomeDeFila(base: string): string {
 // Windows
 // ---------------------------------------------------------------------------
 
-async function regQuery(key: string, extra: string[] = []): Promise<RegKey[]> {
+async function regQuery(key: string, extra: string[] = [], recursivo = true): Promise<RegKey[]> {
   try {
-    const { stdout } = await execFileAsync('reg', ['query', key, '/s', ...extra], {
+    const { stdout } = await execFileAsync('reg', ['query', key, ...(recursivo ? ['/s'] : []), ...extra], {
       timeout: REG_TIMEOUT_MS,
       windowsHide: true,
       maxBuffer: 1024 * 1024 * 4
@@ -274,7 +339,7 @@ function listaFake(): ImpressoraSemFila[] {
   return montarSemFila({
     btOutgoing: [{ mac: 'dc0d30f859ab', port: 'COM3' }],
     btNames: new Map([['dc0d30f859ab', 'KPrinter_ab28']]),
-    usbPorts: [{ port: 'USB001', description: 'ELGIN i9', vid: '20D1', present: true }],
+    usbPorts: [{ port: 'USB001', description: 'ELGIN i9', vid: '20D1', present: true, deviceInstance: null }],
     printersByPort: new Map()
   })
 }
@@ -289,22 +354,34 @@ export function diagnosticoDaBusca(): string {
 export async function listarSemFila(): Promise<ImpressoraSemFila[]> {
   if (fakeAtivo()) return listaFake()
   if (process.platform !== 'win32') return []
-  const [bthenum, btDevices, usbprint, printers] = await Promise.all([
+  const [bthenum, btDevices, btCod, usbprint, usbEnum, printers] = await Promise.all([
     regQuery(KEY_BTHENUM, ['/v', 'PortName']),
     regQuery(KEY_BT_DEVICES, ['/v', 'Name']),
+    regQuery(KEY_BT_DEVICES, ['/v', 'COD']),
     regQuery(KEY_USBPRINT),
+    regQuery(KEY_USBPRINT_ENUM, [], false),
     regQuery(KEY_PRINTERS, ['/v', 'Port'])
   ])
   const btOutgoing = parseBluetoothOutgoing(bthenum)
   const btNames = parseBluetoothNames(btDevices)
-  const usbPorts = parseUsbPrintPorts(usbprint)
+  const btClasses = parseBluetoothClasses(btCod)
+  const usbPorts = parseUsbPrintPorts(usbprint, parseUsbprintPresentes(usbEnum))
   const printersByPort = parsePrinterPorts(printers)
-  const itens = montarSemFila({ btOutgoing, btNames, usbPorts, printersByPort })
+  await Promise.all(
+    usbPorts
+      .filter((u) => u.present && u.deviceInstance && !printersByPort.has(u.port))
+      .map(async (u) => {
+        const k = await regQuery(`${KEY_ENUM}\\${u.deviceInstance}`, ['/v', 'FriendlyName'], false)
+        u.friendlyName = k.flatMap((x) => x.values).find((v) => v.name === 'FriendlyName')?.data ?? null
+      })
+  )
+  const itens = montarSemFila({ btOutgoing, btNames, btClasses, usbPorts, printersByPort })
   // Uma linha para o log (sai no «Enviar logs ao suporte»): sem ela, quando a
   // impressora não aparece, não dá para saber de longe em que passo parou.
   ultimoDiagnostico =
     `Bluetooth: ${btOutgoing.length} porta(s) de saída (${btOutgoing.map((b) => `${b.port}${btNames.has(b.mac) ? '' : ' sem nome'}`).join(', ') || '—'}), ` +
-    `${btNames.size} aparelho(s) pareado(s); USB: ${usbPorts.map((u) => `${u.port}${u.present ? '' : ' desligada'}`).join(', ') || 'nenhuma porta'}; ` +
+    `${btNames.size} aparelho(s) conhecido(s), ${btOutgoing.filter((b) => !podeSerImpressora(btClasses.get(b.mac))).length} de áudio/outro tipo fora; ` +
+    `USB: ${usbPorts.map((u) => `${u.port}${u.present ? '' : ' desligada'}`).join(', ') || 'nenhuma porta'}; ` +
     `filas em ${[...printersByPort.keys()].join(', ') || '—'}; sem fila: ${itens.map((i) => i.port).join(', ') || 'nenhuma'}`
   return itens
 }
