@@ -422,7 +422,10 @@ export function printuiArgs(nome: string, port: string): string[] {
 export async function criarFilaGenerica(
   port: string,
   queueName: string,
-  deps: { elevate?: (file: string, args: string[]) => Promise<void> } = {}
+  deps: {
+    elevate?: (file: string, args: string[]) => Promise<void>
+    elevateScript?: (script: string) => Promise<void>
+  } = {}
 ): Promise<InstalarImpressoraResult> {
   if (fakeAtivo()) {
     await new Promise((r) => setTimeout(r, 1500))
@@ -444,13 +447,53 @@ export async function criarFilaGenerica(
   if (await filaExiste(queueName)) return { ok: true, queueName, elevated: false }
 
   try {
-    await (deps.elevate ?? runElevated)('rundll32.exe', args)
+    if (/^COM\d+$/i.test(port)) {
+      await (deps.elevateScript ?? runElevatedScript)(scriptDaFilaNaCom(queueName, port))
+    } else {
+      await (deps.elevate ?? runElevated)('rundll32.exe', args)
+    }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    return { ok: false, error: `Permissão do Windows não concedida (${msg.slice(0, 200)})` }
+    if ((err as { code?: unknown })?.code === PORTA_NAO_REGISTRADA) {
+      return { ok: false, error: `O Windows não deixou registrar a porta ${port.toUpperCase()} para impressão.` }
+    }
+    return { ok: false, error: `Permissão do Windows não concedida (${motivo(err)})` }
   }
   if (await filaExiste(queueName)) return { ok: true, queueName, elevated: true }
   return { ok: false, error: 'O Windows não criou a impressora.' }
+}
+
+function motivo(err: unknown): string {
+  const stderr = (err as { stderr?: unknown })?.stderr
+  const texto = typeof stderr === 'string' && stderr.trim() ? stderr : err instanceof Error ? err.message : String(err)
+  return texto.replace(/\s+/g, ' ').trim().slice(0, 200)
+}
+
+export const PORTA_NAO_REGISTRADA = 11
+
+/** Porta COM que o spooler ainda não conhece (Bluetooth pareada depois que o
+ *  Windows ligou, ou acima das COM de fábrica): o printui não cria fila nela,
+ *  então a porta é registrada antes, na mesma janela de permissão. */
+export function scriptDaFilaNaCom(nome: string, port: string): string {
+  return [
+    `$porta = ${aspasPs(`${port.toUpperCase()}:`)}`,
+    'try {',
+    '  if (-not (Get-PrinterPort -Name $porta -ErrorAction SilentlyContinue)) { Add-PrinterPort -Name $porta -ErrorAction Stop }',
+    `} catch { exit ${PORTA_NAO_REGISTRADA} }`,
+    `$null = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\\rundll32.exe') -ArgumentList ${aspasPs(linhaDeArgumentos(printuiArgs(nome, port)))} -Wait -WindowStyle Hidden`,
+    'exit 0'
+  ].join('\n')
+}
+
+export function comandoElevadoComScript(script: string): string {
+  const codificado = Buffer.from(script, 'utf16le').toString('base64')
+  return `$p = Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${codificado}' -Verb RunAs -Wait -PassThru -WindowStyle Hidden; exit $p.ExitCode`
+}
+
+async function runElevatedScript(script: string): Promise<void> {
+  await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', comandoElevadoComScript(script)], {
+    timeout: 180_000,
+    windowsHide: true
+  })
 }
 
 /** Roda como administrador (janela do UAC). O PowerShell aqui só abre o
@@ -466,7 +509,13 @@ async function runElevated(file: string, args: string[]): Promise<void> {
  *  com espaço vão entre aspas duplas; a lista toda vai entre aspas simples do
  *  PowerShell (aspa simples dobrada). */
 export function comandoElevado(file: string, args: string[]): string {
-  const linha = args.map((a) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a)).join(' ')
-  const ps = (x: string): string => `'${x.replace(/'/g, "''")}'`
-  return `Start-Process -FilePath ${ps(file)} -ArgumentList ${ps(linha)} -Verb RunAs -Wait -WindowStyle Hidden`
+  return `Start-Process -FilePath ${aspasPs(file)} -ArgumentList ${aspasPs(linhaDeArgumentos(args))} -Verb RunAs -Wait -WindowStyle Hidden`
+}
+
+function linhaDeArgumentos(args: string[]): string {
+  return args.map((a) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a)).join(' ')
+}
+
+function aspasPs(x: string): string {
+  return `'${x.replace(/'/g, "''")}'`
 }
