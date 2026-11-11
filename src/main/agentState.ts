@@ -5,6 +5,7 @@ import type {
   AgentSnapshot,
   HistoryEntry,
   LogEntry,
+  ImpressoraExtra,
   PrinterConfig,
   Preferences,
   PrintMode
@@ -139,6 +140,14 @@ export class AgentState extends EventEmitter {
     this.patch({ printer })
   }
 
+  setExtras(extras: ImpressoraExtra[]): void {
+    this.patch({ extras })
+  }
+
+  setNomesDasImpressoras(nomesDasImpressoras: Record<string, string>): void {
+    this.patch({ nomesDasImpressoras })
+  }
+
   setPrintMode(mode: PrintMode, driver: string | null): void {
     if (mode === this.snap.printMode && driver === this.snap.printerDriver) return
     this.patch({ printMode: mode, printerDriver: driver })
@@ -181,6 +190,8 @@ export function makeInitialSnapshot(version: string): AgentSnapshot {
     // Impressoras"). Rede fica atrás de "Conexão por rede" na UI pra casos
     // de impressora com IP fixo.
     printer: { type: 'windows_spooler', spoolerName: '', paperWidth: 80 },
+    extras: [],
+    nomesDasImpressoras: {},
     printMode: 'escpos',
     printerDriver: null,
     history: [],

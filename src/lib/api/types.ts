@@ -20,9 +20,16 @@ export type LeaseItem = {
   id: string
   orderNumber: string
   reason?: string
+  /** v1.14.0: loja com duas impressoras ou mais — a chave da impressora deste computador que imprime o item. */
+  impressoraChave?: string
   bytesB64: string // base64
   paperWidth?: PaperWidth | '58mm' | '80mm'
   paperWidthMm?: PaperWidth
+}
+
+export type ImpressorasDoAparelho = {
+  impressoras: Array<{ chave: string; id: string; nome: string; principal: boolean }>
+  ativasNaLoja: number
 }
 
 export type ClaimLeaseResponse = {

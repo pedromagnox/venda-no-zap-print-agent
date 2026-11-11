@@ -100,6 +100,7 @@ function quarantineCorruptDb(reason: unknown): void {
 
 function applySchema(db: Database.Database): void {
   addColumnIfMissing(db, 'claimed_items', 'store_id', 'TEXT')
+  addColumnIfMissing(db, 'claimed_items', 'impressora_chave', 'TEXT')
   addColumnIfMissing(db, 'telemetry_buffer', 'store_id', 'TEXT')
   db.exec(`
     CREATE TABLE IF NOT EXISTS claimed_items (
@@ -112,7 +113,8 @@ function applySchema(db: Database.Database): void {
       lease_expires_at INTEGER,
       attempts INTEGER NOT NULL DEFAULT 0,
       last_error TEXT,
-      store_id TEXT
+      store_id TEXT,
+      impressora_chave TEXT
     );
 
     -- v1.5: text_data armazena o cupom ASCII pro modo compatibilidade.

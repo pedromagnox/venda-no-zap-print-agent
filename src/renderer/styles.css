@@ -391,6 +391,47 @@ button {
   color: var(--text-muted);
 }
 
+.impressora-nome {
+  font-style: italic;
+  font-weight: 800;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+}
+
+.impressora-lapis {
+  padding: 2px 8px;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.impressoras-lista {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.impressora-chip {
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.impressora-chip.active {
+  border-color: var(--brand-primary);
+  color: var(--brand-primary);
+  font-weight: 700;
+}
+
+.btn-perigo {
+  color: var(--color-error);
+}
+
 /* ===== Form controls ===== */
 
 .field {

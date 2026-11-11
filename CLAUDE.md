@@ -187,6 +187,16 @@ Uma instalação atende **N lojas** — o caso do lojista com duas lojas e uma i
 - Testes: `node --test scripts/teste-driver.mjs`. O caminho pelo driver em si só se prova num Windows de verdade.
 - Telemetria nova do «Usar esta»: `printer_created` (port, kind, elevated) e `printer_create_failed` (port, kind, errorMessage). O servidor precisa ter os campos na whitelist (`TELEMETRY_CONTEXT_WHITELIST` em `routes/print-agent.ts`).
 
+## Várias impressoras no mesmo computador (1.14.0)
+
+- A principal continua em `state.printer` (`printer.json`, chave `principal`); as a mais ficam em `state.extras` (`impressoras-extras.json`, chave `imp-xxxxxxxx`). `configDaImpressora(snap, chave)` (`shared/types.ts`) devolve a config pela chave; chave que não existe mais aqui cai na principal, para o pedido não se perder.
+- A loja dá os nomes (Balcão, Bar, 03, 04…, editáveis no app e no painel): `main/impressorasDoAparelho.ts` manda as impressoras com alvo (`PUT /api/print-agent/impressoras`) ao conectar e 3 s depois de cada mudança, e guarda os nomes da primeira loja em `nomesDasImpressoras`. Trocar o nome = `PATCH …/impressoras/:chave` em todas as lojas (409 = nome repetido); remover = `DELETE`. A principal não se remove.
+- Loja com duas impressoras ou mais: o servidor endereça cada linha da fila a uma impressora, e o `claim-lease` traz `impressora.chave`. O app manda `modos` (chave → modo de cada impressora a mais) para o servidor montar cada cupom no modo da impressora dele; a fila local guarda `impressora_chave`, então o `recoverLocal` volta na impressora certa.
+- Tela: «IMPRESSORA: *Nome*» com o lápis, os chips para trocar qual se configura, «+ Adicionar impressora» e «Remover esta impressora». Trocar o alvo de uma impressora a mais abre o teste guiado dela.
+- O mutex da impressora segue um só para todas (simples e seguro; cupons são rápidos).
+- A largura vem da loja (a mesma para todas).
+- Testes: `node --test scripts/teste-varias-impressoras.mjs`. Teste de verdade feito em xvfb contra servidor falso (10/11): cada pedido saiu na impressora da chave, no modo dela, e o nome repetido voltou com o aviso.
+
 ## Convenções e armadilhas
 
 - **Native modules ficam fora do asar** (`asarUnpack` no `electron-builder.yml`). Ao adicionar outro `.node`, repetir o padrão.

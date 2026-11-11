@@ -86,11 +86,19 @@ export type InstalarImpressoraResult =
 export type PrintMode = 'escpos' | 'compatibility'
 
 // Snapshot completo do estado exposto ao renderer pelo main via IPC.
+export const CHAVE_PRINCIPAL = 'principal'
+
+/** v1.14.0: impressora a mais neste computador (Bar, 03…). A principal continua em `printer`. */
+export type ImpressoraExtra = { chave: string; config: PrinterConfig }
+
 export type AgentSnapshot = {
   status: AgentStatus
   statusMessage: string
   lastActionAt: string | null
   printer: PrinterConfig
+  /** v1.14.0: as impressoras a mais deste computador e os nomes que a loja deu (chave → nome; inclui a principal). */
+  extras: ImpressoraExtra[]
+  nomesDasImpressoras: Record<string, string>
   /** Modo derivado do driver atual. Re-detectado quando o lojista troca a
    *  impressora ou no boot do agente. Não persistido — sempre derivado. */
   printMode: PrintMode
@@ -120,4 +128,17 @@ export type StoreConnectionInfo = {
   /** Estado desta loja em particular (a bandeja mostra o pior de todas). */
   status: AgentStatus
   statusMessage: string
+}
+
+/** Config da impressora pela chave; sem chave, ou chave que não existe mais aqui, é a principal. */
+export function configDaImpressora(snap: Pick<AgentSnapshot, 'printer' | 'extras'>, chave?: string | null): PrinterConfig {
+  if (!chave || chave === CHAVE_PRINCIPAL) return snap.printer
+  return snap.extras.find((e) => e.chave === chave)?.config ?? snap.printer
+}
+
+/** Nome de fábrica enquanto a loja não respondeu (o mesmo do servidor): Balcão, Bar, 03, 04… */
+export function nomeDeFabrica(posicao: number): string {
+  if (posicao === 0) return 'Balcão'
+  if (posicao === 1) return 'Bar'
+  return String(posicao + 1).padStart(2, '0')
 }

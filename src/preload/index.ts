@@ -35,19 +35,30 @@ const api = {
   disconnectStore: (storeId: string): Promise<void> =>
     ipcRenderer.invoke('agent:disconnectStore', storeId),
 
-  setPrinter: (printer: PrinterConfig): Promise<{ ok: boolean; error?: string }> =>
-    ipcRenderer.invoke('agent:setPrinter', printer),
+  setPrinter: (printer: PrinterConfig, chave?: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:setPrinter', printer, chave),
 
   setPreferences: (prefs: Preferences): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:setPreferences', prefs),
 
-  testPrint: (): Promise<{ ok: boolean; error?: string; code?: string; hint?: string }> =>
-    ipcRenderer.invoke('agent:testPrint'),
+  testPrint: (chave?: string): Promise<{ ok: boolean; error?: string; code?: string; hint?: string }> =>
+    ipcRenderer.invoke('agent:testPrint', chave),
 
   printTestReceipt: (
-    mode: PrintModeSelection
+    mode: PrintModeSelection,
+    chave?: string
   ): Promise<{ ok: boolean; error?: string; code?: string; hint?: string }> =>
-    ipcRenderer.invoke('agent:printTestReceipt', mode),
+    ipcRenderer.invoke('agent:printTestReceipt', mode, chave),
+
+  /** v1.14.0: várias impressoras neste computador. */
+  adicionarImpressora: (): Promise<{ ok: boolean; chave?: string; error?: string }> =>
+    ipcRenderer.invoke('agent:adicionarImpressora'),
+
+  removerImpressora: (chave: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('agent:removerImpressora', chave),
+
+  renomearImpressora: (chave: string, nome: string): Promise<{ ok: boolean; nome?: string; error?: string }> =>
+    ipcRenderer.invoke('agent:renomearImpressora', chave, nome),
 
   listSpoolerPrinters: (): Promise<SpoolerPrinterInfo[]> =>
     ipcRenderer.invoke('agent:listSpoolerPrinters'),
