@@ -21,6 +21,7 @@ import { randomUUID } from 'node:crypto'
 import {
   CHAVE_PRINCIPAL,
   configDaImpressora,
+  nomeDeFabrica,
   type AgentSnapshot,
   type ImpressoraExtra,
   type ImpressoraSemFila,
@@ -210,6 +211,10 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
   ipcMain.handle(
     'agent:setPrinter',
     async (_e, printer: PrinterConfig, chave?: string): Promise<{ ok: boolean; error?: string }> => {
+      const repetida = impressoraNoMesmoAlvo(state.get(), printer, chave ?? CHAVE_PRINCIPAL)
+      if (repetida) {
+        return { ok: false, error: `Essa impressora já está em «${repetida}». Use a aba dela ou escolha outra impressora.` }
+      }
       if (chave && chave !== CHAVE_PRINCIPAL) {
         const extras = state.get().extras
         if (!extras.some((e) => e.chave === chave)) return { ok: false, error: 'Essa impressora não existe mais neste computador.' }
@@ -552,4 +557,19 @@ function erroDaApi(err: unknown): string {
     }
   }
   return err instanceof Error ? err.message : String(err)
+}
+
+/** A mesma impressora em duas abas dividia e repetia os pedidos (Casa Doce, #1108): devolve o nome da aba que já a usa. */
+function impressoraNoMesmoAlvo(snap: AgentSnapshot, config: PrinterConfig, chave: string): string | null {
+  const alvo = alvoDaImpressora(config)
+  if (!alvo) return null
+  const todas = [{ chave: CHAVE_PRINCIPAL, config: snap.printer }, ...snap.extras]
+  const posicao = todas.findIndex((i) => i.chave !== chave && alvoDaImpressora(i.config) === alvo)
+  if (posicao < 0) return null
+  return snap.nomesDasImpressoras[todas[posicao]!.chave] ?? nomeDeFabrica(posicao)
+}
+
+function alvoDaImpressora(config: PrinterConfig): string | null {
+  if (config.type === 'network') return config.host ? `rede:${config.host.trim()}:${config.port ?? 9100}` : null
+  return config.spoolerName ? `windows:${config.spoolerName.trim().toLowerCase()}` : null
 }
