@@ -350,6 +350,7 @@ test('COM: registra a porta no spooler antes do printui, na mesma permissão (KA
   assert.match(script, /Add-PrinterPort -Name \$porta -ErrorAction Stop/)
   assert.match(script, new RegExp(`exit ${PORTA_NAO_REGISTRADA}`))
   assert.ok(script.indexOf('Add-PrinterPort') < script.indexOf('rundll32'))
+  assert.match(script, /^if \(Get-Command Add-PrinterPort -ErrorAction SilentlyContinue\) \{$/m)
   assert.match(script, /"Termica KA-1445"/)
   assert.match(script, / \/r COM12: /)
   assert.match(script, /-Wait/)
