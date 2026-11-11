@@ -27,6 +27,7 @@ import { detectPrintMode } from '@lib/printer'
 import type { AgentStatus, AgentSnapshot, Preferences, PrinterConfig } from '@shared/types'
 import { formatLogTime } from '@shared/logTime'
 import { AgentState, makeInitialSnapshot } from './agentState'
+import { imprimirPeloDriver } from './imprimirPeloDriver'
 import { StoreConnection } from './storeConnection'
 import { Mutex } from 'async-mutex'
 import { registerIpc } from './ipc'
@@ -256,6 +257,7 @@ if (!gotLock) {
         appVersion: app.getVersion(),
         getPrinterConfig: () => state.get().printer,
         withPrinter: (fn) => printerMutex.runExclusive(fn),
+        imprimirPeloDriver,
         adoptsLegacyRows: connections.size === 0
       })
 

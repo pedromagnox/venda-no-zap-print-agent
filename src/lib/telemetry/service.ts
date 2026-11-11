@@ -29,6 +29,9 @@ export type EmitInput = {
   durationMs?: number
   queueId?: string
   printMode?: TelemetryEvent['printMode']
+  port?: string
+  kind?: TelemetryEvent['kind']
+  elevated?: boolean
 }
 
 export class TelemetryService {
@@ -60,6 +63,9 @@ export class TelemetryService {
     if (input.durationMs !== undefined) event.durationMs = Math.max(0, Math.round(input.durationMs))
     if (input.queueId !== undefined) event.queueId = input.queueId
     if (input.printMode !== undefined) event.printMode = input.printMode
+    if (input.port !== undefined && /^(COM\d+|USB\d{3})$/i.test(input.port)) event.port = input.port.toUpperCase()
+    if (input.kind !== undefined) event.kind = input.kind
+    if (input.elevated !== undefined) event.elevated = input.elevated
     return event
   }
 
