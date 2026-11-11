@@ -26,19 +26,44 @@ const execFileAsync = promisify(execFile)
 const SEIS_HORAS = 6 * 60 * 60_000
 
 async function powershell(script: string, timeoutMs: number): Promise<string> {
-  const { stdout } = await execFileAsync(
-    'powershell.exe',
-    [
-      '-NoProfile',
-      '-NonInteractive',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-EncodedCommand',
-      Buffer.from(script, 'utf16le').toString('base64')
-    ],
-    { timeout: timeoutMs, windowsHide: true, maxBuffer: 256 * 1024 }
-  )
-  return stdout
+  const completo = [
+    '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+    'try {',
+    script,
+    '} catch {',
+    "  Write-Output ('ERRO|' + $_.Exception.Message)",
+    '  exit 1',
+    '}'
+  ].join('\n')
+  try {
+    const { stdout } = await execFileAsync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-EncodedCommand',
+        Buffer.from(completo, 'utf16le').toString('base64')
+      ],
+      { timeout: timeoutMs, windowsHide: true, maxBuffer: 256 * 1024 }
+    )
+    return stdout
+  } catch (err) {
+    throw new Error(motivoDoPowershell(err))
+  }
+}
+
+function motivoDoPowershell(err: unknown): string {
+  const e = err as { stdout?: unknown; killed?: unknown; code?: unknown }
+  const erro = typeof e?.stdout === 'string' ? /^ERRO\|(.*)$/m.exec(e.stdout)?.[1] : undefined
+  if (erro) return erro.replace(/\s+/g, ' ').trim().slice(0, 300)
+  if (e?.killed) return 'o PowerShell não respondeu a tempo'
+  return `o PowerShell saiu com código ${String(e?.code ?? '?')}`
+}
+
+function falhou(oQue: string, err: unknown): void {
+  depsDaStore?.log('warn', `${oQue}: ${err instanceof Error ? err.message : String(err)}`)
 }
 
 const ESPERAR = [
@@ -82,7 +107,8 @@ export async function lerInicioAutomatico(ligarSeDesligadoPeloApp: boolean): Pro
   ].join('\n')
   try {
     return estadoDoInicio(await powershell(script, 45_000))
-  } catch {
+  } catch (err) {
+    falhou('Não deu para ler o início com o Windows', err)
     return 'desconhecido'
   }
 }
@@ -91,7 +117,8 @@ async function desligarInicioAutomatico(): Promise<InicioAutomatico> {
   const script = [...ESPERAR, ...TAREFA, '$t.Disable()', 'Write-Output $t.State'].join('\n')
   try {
     return estadoDoInicio(await powershell(script, 45_000))
-  } catch {
+  } catch (err) {
+    falhou('Não deu para desligar o início com o Windows', err)
     return 'desconhecido'
   }
 }
@@ -104,7 +131,8 @@ async function procurarAtualizacao(): Promise<Atualizacoes | null> {
   ].join('\n')
   try {
     return lerAtualizacoes(await powershell(script, 60_000))
-  } catch {
+  } catch (err) {
+    falhou('Não deu para procurar versão nova na Microsoft Store', err)
     return null
   }
 }
