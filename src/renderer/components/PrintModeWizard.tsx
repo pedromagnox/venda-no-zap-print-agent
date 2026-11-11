@@ -28,6 +28,8 @@ type Props = {
    *  busca o cupom no servidor e a tela principal só abria depois de salvar
    *  um modo (Magrello Burger, #828). Os pedidos saem no modo derivado. */
   onSkip?: () => void
+  /** Impressora instalada no Windows: dá para tentar o modo «pelo driver do Windows». */
+  podeUsarDriver?: boolean
 }
 
 type View =
@@ -37,6 +39,7 @@ type View =
   | { kind: 'ask-accent' } // Texto: acentos certos?
   | { kind: 'ask-raster' } // Imagem: nítido e completo?
   | { kind: 'ask-ascii' } // Simples: legível?
+  | { kind: 'ask-driver' } // Pelo driver: saiu certinho?
   | { kind: 'noprint'; mode: PrintModeSelection; hint?: string }
   | { kind: 'deadend' }
   | { kind: 'saving' }
@@ -44,7 +47,8 @@ type View =
 const MODE_LABEL: Record<PrintModeSelection, string> = {
   escpos: 'Texto',
   raster: 'Imagem',
-  ascii: 'Simples'
+  ascii: 'Simples',
+  driver: 'Pelo driver do Windows'
 }
 
 export function PrintModeWizard({
@@ -53,11 +57,15 @@ export function PrintModeWizard({
   onDone,
   onSupport,
   onChangePrinter,
-  onSkip
+  onSkip,
+  podeUsarDriver
 }: Props): JSX.Element {
   const [view, setView] = useState<View>({ kind: 'intro' })
+  const [tentouDriver, setTentouDriver] = useState(false)
+  const ofereceDriver = podeUsarDriver === true && !tentouDriver
 
   const printAndAsk = async (mode: PrintModeSelection): Promise<void> => {
+    if (mode === 'driver') setTentouDriver(true)
     setView({ kind: 'printing', mode })
     const r = await onPrintTest(mode)
     if (!r.ok) {
@@ -70,7 +78,9 @@ export function PrintModeWizard({
         ? { kind: 'ask-printed' }
         : mode === 'raster'
           ? { kind: 'ask-raster' }
-          : { kind: 'ask-ascii' }
+          : mode === 'driver'
+            ? { kind: 'ask-driver' }
+            : { kind: 'ask-ascii' }
     )
   }
 
@@ -173,6 +183,16 @@ export function PrintModeWizard({
           />
         )
 
+      case 'ask-driver':
+        return (
+          <Question
+            title="O cupom saiu certinho?"
+            hint="Agora o cupom foi pelo driver da impressora no Windows, como uma página. Confira se saiu completo e dá para ler."
+            yes={{ label: 'Sim, saiu certinho', onClick: () => void save('driver') }}
+            no={{ label: 'Não saiu ou saiu ruim', onClick: () => setView({ kind: 'deadend' }) }}
+          />
+        )
+
       case 'noprint':
         return (
           <div className="field">
@@ -192,6 +212,17 @@ export function PrintModeWizard({
             >
               Imprimir de novo
             </button>
+            {ofereceDriver && view.mode !== 'driver' && (
+              <>
+                <div className="field-hint" style={{ marginTop: 10 }}>
+                  A página de teste do próprio Windows imprime e o nosso cupom não? A sua impressora pode precisar do
+                  driver dela.
+                </div>
+                <button type="button" className="btn btn-block" onClick={() => void printAndAsk('driver')}>
+                  Imprimir pelo driver do Windows
+                </button>
+              </>
+            )}
             {onChangePrinter && (
               <button type="button" className="btn btn-block" onClick={onChangePrinter}>
                 Trocar de impressora
@@ -210,7 +241,16 @@ export function PrintModeWizard({
               <strong>Nenhum modo saiu legível.</strong> Pode ser a impressora ou o papel. O
               suporte ajuda a resolver.
             </p>
-            <button type="button" className="btn btn-primary btn-block" onClick={onSupport}>
+            {ofereceDriver && (
+              <button type="button" className="btn btn-primary btn-block" onClick={() => void printAndAsk('driver')}>
+                Tentar pelo driver do Windows
+              </button>
+            )}
+            <button
+              type="button"
+              className={ofereceDriver ? 'btn btn-block' : 'btn btn-primary btn-block'}
+              onClick={onSupport}
+            >
               Falar com o suporte
             </button>
             <button type="button" className="btn btn-block" onClick={() => void save('escpos')}>

@@ -11,7 +11,7 @@ export type PaperWidth = 58 | 80
 // claim-lease e o servidor usa pra montar os bytes. Definido pelo wizard de
 // teste guiado. Distinto do `PrintMode` derivado (badge da UI) lá embaixo.
 //   escpos = Texto (ESC/POS CP850) | ascii = Simples (transliterado) | raster = Imagem (GS v 0)
-export type PrintModeSelection = 'escpos' | 'ascii' | 'raster'
+export type PrintModeSelection = 'escpos' | 'ascii' | 'raster' | 'driver'
 
 export type PrinterConfig = {
   type: PrinterType

@@ -31,6 +31,7 @@ export type StoreConnectionDeps = {
   getPrinterConfig: () => PrinterConfig
   /** Serializa o acesso à impressora entre TODAS as lojas (uma impressora só). */
   withPrinter: <T>(fn: () => Promise<T>) => Promise<T>
+  imprimirPeloDriver?: (bytes: Uint8Array, fila: string) => Promise<void>
   /** Primeira loja da lista: adota as linhas sqlite gravadas antes da
    *  atualização, que não têm store_id. */
   adoptsLegacyRows: boolean
@@ -105,6 +106,7 @@ export class StoreConnection {
       telemetry: this.telemetry,
       getPrinterConfig: deps.getPrinterConfig,
       withPrinter: deps.withPrinter,
+      imprimirPeloDriver: deps.imprimirPeloDriver,
       intervalMs: config.pollIntervalMs
     })
 

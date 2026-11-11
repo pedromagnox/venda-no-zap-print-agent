@@ -11,6 +11,8 @@ import {
 } from '@lib/printer'
 import type { DiscoveredSpoolerPrinter } from '@lib/printer'
 import * as semFila from '@lib/printer/semFila'
+import { sanitize } from '@lib/telemetry/sanitize'
+import { imprimirPeloDriver } from './imprimirPeloDriver'
 import { writeJsonFile } from '@lib/storage/jsonStore'
 import { formatLogTime } from '@shared/logTime'
 import { applyAutoStart } from './autoStart'
@@ -263,6 +265,15 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
     try {
       const printer = makePrinter(config)
       await withPrinter(async () => {
+        if (config.printMode === 'driver') {
+          const conn = anyConnection()
+          if (!conn || config.type !== 'windows_spooler' || !config.spoolerName) {
+            throw new PrinterError('INVALID_CONFIG', 'o modo pelo driver do Windows precisa da loja conectada e de uma impressora instalada no Windows')
+          }
+          const test = await conn.endpoints.testReceipt('driver', config.paperWidth)
+          await imprimirPeloDriver(Buffer.from(test.bytesB64, 'base64'), config.spoolerName)
+          return
+        }
         try {
           const testData: Buffer | string = detected.mode === 'compatibility'
             ? buildTestPageText()
@@ -328,18 +339,26 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
         if (!conn) throw new Error('Nenhuma loja conectada — conecte uma loja antes de testar.')
         const test = await conn.endpoints.testReceipt(mode, config.paperWidth)
         const bytes = Buffer.from(test.bytesB64, 'base64')
-        const printer = makePrinter(config)
-        await withPrinter(async () => {
-          try {
-            await printer.print(bytes, 'Teste de modo - Venda no Zap')
-          } finally {
-            await printer.close()
+        if (mode === 'driver') {
+          if (config.type !== 'windows_spooler' || !config.spoolerName) {
+            throw new PrinterError('INVALID_CONFIG', 'o modo pelo driver do Windows precisa de uma impressora instalada no Windows')
           }
-        })
+          const fila = config.spoolerName
+          await withPrinter(() => imprimirPeloDriver(bytes, fila))
+        } else {
+          const printer = makePrinter(config)
+          await withPrinter(async () => {
+            try {
+              await printer.print(bytes, 'Teste de modo - Venda no Zap')
+            } finally {
+              await printer.close()
+            }
+          })
+        }
         state.pushLog({
           time: nowLogTime(),
           level: 'info',
-          message: `Teste de modo [${mode}] impresso em ${printer.describe()} (${Date.now() - startedAt}ms)`
+          message: `Teste de modo [${mode}] impresso em ${config.type === 'windows_spooler' ? `spooler://${config.spoolerName ?? ''}` : `${config.host ?? ''}:${config.port ?? ''}`} (${Date.now() - startedAt}ms)`
         })
         return { ok: true }
       } catch (err) {
@@ -384,6 +403,11 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
         message: `Criando a impressora "${item.suggestedQueueName}" na ${item.port} (${item.kind === 'bluetooth' ? 'Bluetooth' : 'USB'}: ${item.label})…`
       })
       const result = await semFila.criarFilaGenerica(item.port, item.suggestedQueueName)
+      anyConnection()?.telemetry.emit(
+        result.ok
+          ? { type: 'printer_created', port: item.port, kind: item.kind, elevated: result.elevated }
+          : { type: 'printer_create_failed', port: item.port, kind: item.kind, errorMessage: sanitize(result.error).slice(0, 300) }
+      )
       state.pushLog(
         result.ok
           ? {

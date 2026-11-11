@@ -170,6 +170,15 @@ Uma instalação atende **N lojas** — o caso do lojista com duas lojas e uma i
   - ⚠️ A reabertura depois da atualização e o fechamento do antigo só se provam num Windows de verdade, com duas versões na Store (voo de pacote no Partner Center).
   - Testes: `node --test scripts/teste-windows-store.mjs`.
 
+## Pelo driver do Windows (1.13.3, A-0252)
+
+- Modo novo `driver` no teste guiado, para impressora que não entende ESC/POS (Star/Diebold TSP143, A4 jato/laser): oferecido no «Não saiu nada?» e no beco, só para impressora instalada no Windows (`windows_spooler`). Regra do Pedro: só depois que a «Imprimir página de teste» do próprio Windows sai.
+- O app pede o cupom em imagem (`raster`, `modoNoServidor` em `endpoints.ts`), `lib/printer/rasterParaImagem.ts` junta as bandas `GS v 0` numa página (cada corte `GS V` = uma página; avanço `LF` = 24 pontos), gera um PNG 1-bit e um HTML com `@page` do tamanho do papel (576 pontos = 80 mm, 384 = 58 mm; 8 pontos/mm), e `main/imprimirPeloDriver.ts` imprime numa janela escondida com `webContents.print({ silent, deviceName: spoolerName, pageSize })`. Prazo de 60 s.
+- O servidor não mudou: o `claim-lease` e o `test-receipt` recebem `raster`. A fila local guarda `driver` no `print_mode`, então o `recoverLocal` também volta pelo driver.
+- O «Testar impressão» no modo `driver` imprime o cupom-teste do servidor pelo driver (a página local é ESC/POS e não sairia).
+- Testes: `node --test scripts/teste-driver.mjs`. O caminho pelo driver em si só se prova num Windows de verdade.
+- Telemetria nova do «Usar esta»: `printer_created` (port, kind, elevated) e `printer_create_failed` (port, kind, errorMessage). O servidor precisa ter os campos na whitelist (`TELEMETRY_CONTEXT_WHITELIST` em `routes/print-agent.ts`).
+
 ## Convenções e armadilhas
 
 - **Native modules ficam fora do asar** (`asarUnpack` no `electron-builder.yml`). Ao adicionar outro `.node`, repetir o padrão.

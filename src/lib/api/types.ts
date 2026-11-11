@@ -91,6 +91,8 @@ export type TelemetryEvent = {
     | 'print_success'
     | 'print_failure'
     | 'printer_state_change'
+    | 'printer_created'
+    | 'printer_create_failed'
   agentInstallId: string
   agentVersion: string
   osVersion?: string
@@ -116,6 +118,9 @@ export type TelemetryEvent = {
    *  'manual_reprint', etc.). Ecoa o `print_queue.reason` no backend.
    *  Permite distinguir 1ª impressão de reimpressão sem cruzar com queueId. */
   reason?: string
+  port?: string
+  kind?: 'bluetooth' | 'usb'
+  elevated?: boolean
   payloadVersion: number
 }
 
