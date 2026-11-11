@@ -651,6 +651,10 @@ button {
   width: 100%;
 }
 
+.btn-block + .btn-block {
+  margin-top: var(--space-2);
+}
+
 /* ===== History list ===== */
 
 .history-list {
