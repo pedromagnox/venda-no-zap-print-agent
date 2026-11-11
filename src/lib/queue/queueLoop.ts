@@ -22,7 +22,10 @@ export type QueueLoopDeps = {
   state: StoreScopedState
   localQueue: LocalQueue
   telemetry: TelemetryService
-  getPrinterConfig: () => PrinterConfig
+  /** Sem chave (ou chave que não existe mais aqui) = a impressora principal. */
+  getPrinterConfig: (chave?: string | null) => PrinterConfig
+  /** v1.14.0: modo de cada impressora a mais (chave → modo), para o servidor montar o cupom de cada uma no modo dela. */
+  getModosDasExtras?: () => Record<string, PrintModeSelection>
   /** v1.11.0: serializa o acesso à impressora entre as lojas — ela é UMA só,
    *  e dois cupons entrelaçados sairiam embaralhados no papel. */
   withPrinter?: <T>(fn: () => Promise<T>) => Promise<T>
@@ -276,7 +279,8 @@ export class QueueLoop {
         this.deps.state.setStatus('green', 'Conectado e pronto pra imprimir.')
       }
       const mode = await this.resolvePrintMode(config)
-      const { items } = await this.deps.endpoints.claimLease(QueueLoop.CLAIM_MAX, mode)
+      const modos = this.deps.getModosDasExtras?.() ?? {}
+      const { items } = await this.deps.endpoints.claimLease(QueueLoop.CLAIM_MAX, mode, modos)
       this.consecutiveListErrors = 0
       if (this.polledRedActive) {
         this.polledRedActive = false
@@ -331,7 +335,7 @@ export class QueueLoop {
       }
       for (const item of items) {
         if (!this.active) break
-        await this.processLeased(item, mode)
+        await this.processLeased(item, (item.impressoraChave && modos[item.impressoraChave]) || mode)
       }
       this.ticking = false
       // Kick pendente (push enquanto o tick rodava) → tick já. Senão, o próximo
@@ -405,6 +409,7 @@ export class QueueLoop {
         bytesB64: item.bytesB64,
         text: null,
         printMode: mode,
+        impressoraChave: item.impressoraChave ?? null,
         paperWidth: normalizePaperWidth(item.paperWidthMm ?? item.paperWidth),
         copies: 1,
         claimedAt: Date.now(),
@@ -451,7 +456,7 @@ export class QueueLoop {
   private async printAndAck(row: ClaimedRow, mode?: PrintModeSelection, reason?: string): Promise<void> {
     const startedAt = Date.now()
     const { id, orderNumber } = row
-    const printerConfig = this.deps.getPrinterConfig()
+    const printerConfig = this.deps.getPrinterConfig(row.impressoraChave)
     const reasonField = reason ? { reason } : {}
     const modo = mode ?? row.printMode ?? undefined
     this.deps.telemetry.emit({

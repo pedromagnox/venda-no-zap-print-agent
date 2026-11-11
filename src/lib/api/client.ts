@@ -74,6 +74,14 @@ export class ApiClient {
     return (await res.json()) as T
   }
 
+  async enviarJson<T>(metodo: 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
+    const init: RequestInit = { method: metodo }
+    if (body !== undefined) init.body = JSON.stringify(body)
+    const res = await this.fetch(path, init)
+    if (!res.ok) throw new ApiError(res.status, await safeText(res))
+    return (await res.json()) as T
+  }
+
   async post(path: string, body?: unknown): Promise<void> {
     const init: RequestInit = { method: 'POST' }
     if (body !== undefined) init.body = JSON.stringify(body)

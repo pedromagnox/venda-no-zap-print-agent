@@ -21,6 +21,14 @@ type PrinterSectionProps = {
   onTestPrint: () => void
   /** Abre o wizard de teste guiado de modo de impressão (re-teste). */
   onRetestMode?: () => void
+  /** v1.14.0: nome desta impressora na loja (Balcão, Bar, 03…) e as outras deste computador. */
+  nome?: string
+  impressoras?: Array<{ chave: string; nome: string }>
+  chaveSelecionada?: string
+  onSelecionar?: (chave: string) => void
+  onRenomear?: (nome: string) => Promise<string | null>
+  onAdicionar?: () => void
+  onRemover?: () => void
 }
 
 const TYPES: { value: PrinterType; label: string; pill: 'recommended' | 'advanced' }[] = [
@@ -37,7 +45,14 @@ export function PrinterSection({
   printerDriver = null,
   onChange,
   onTestPrint,
-  onRetestMode
+  onRetestMode,
+  nome,
+  impressoras = [],
+  chaveSelecionada,
+  onSelecionar,
+  onRenomear,
+  onAdicionar,
+  onRemover
 }: PrinterSectionProps): JSX.Element {
   const [spoolerList, setSpoolerList] = useState<SpoolerPrinterInfo[]>([])
   const [spoolerLoading, setSpoolerLoading] = useState(false)
@@ -58,9 +73,24 @@ export function PrinterSection({
 
   return (
     <section className="section">
-      <div className="section-header">
-        <span className="section-title">Impressora</span>
-      </div>
+      <TituloDaImpressora nome={nome} onRenomear={onRenomear} />
+
+      {impressoras.length > 1 && onSelecionar && (
+        <div className="impressoras-lista" role="tablist">
+          {impressoras.map((i) => (
+            <button
+              key={i.chave}
+              type="button"
+              role="tab"
+              aria-selected={i.chave === chaveSelecionada}
+              className={`impressora-chip ${i.chave === chaveSelecionada ? 'active' : ''}`}
+              onClick={() => onSelecionar(i.chave)}
+            >
+              {i.nome}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="field">
         <label className="label">Tipo de conexão</label>
@@ -194,6 +224,17 @@ export function PrinterSection({
           Configurar modo de impressão
         </button>
       )}
+
+      {onAdicionar && (
+        <button type="button" className="btn btn-block" onClick={onAdicionar}>
+          + Adicionar impressora
+        </button>
+      )}
+      {onRemover && (
+        <button type="button" className="btn btn-ghost btn-block btn-perigo" onClick={onRemover}>
+          Remover esta impressora
+        </button>
+      )}
     </section>
   )
 }
@@ -245,6 +286,104 @@ function SpoolerSelectedWarnings({
       {problems.map((p, i) => (
         <div key={i}>{p}</div>
       ))}
+    </div>
+  )
+}
+
+function TituloDaImpressora({
+  nome,
+  onRenomear
+}: {
+  nome?: string
+  onRenomear?: (nome: string) => Promise<string | null>
+}): JSX.Element {
+  const [editando, setEditando] = useState(false)
+  const [texto, setTexto] = useState(nome ?? '')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  const salvar = async (): Promise<void> => {
+    if (!onRenomear) return
+    const novo = texto.trim()
+    if (!novo || novo === nome) {
+      setEditando(false)
+      setErro(null)
+      return
+    }
+    setSalvando(true)
+    const falha = await onRenomear(novo)
+    setSalvando(false)
+    if (falha) setErro(falha)
+    else {
+      setEditando(false)
+      setErro(null)
+    }
+  }
+
+  if (editando) {
+    return (
+      <div className="section-header impressora-titulo">
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              className="input"
+              value={texto}
+              maxLength={30}
+              autoFocus
+              onChange={(e) => setTexto(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void salvar()
+                if (e.key === 'Escape') {
+                  setEditando(false)
+                  setErro(null)
+                }
+              }}
+              aria-label="Nome da impressora"
+            />
+            <button type="button" className="btn btn-primary" onClick={() => void salvar()} disabled={salvando}>
+              {salvando ? '…' : 'Salvar'}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setEditando(false)
+                setErro(null)
+              }}
+            >
+              Cancelar
+            </button>
+          </div>
+          {erro && (
+            <div className="field-hint" style={{ color: 'var(--color-error)', marginTop: 4 }}>
+              {erro}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="section-header impressora-titulo">
+      <span className="section-title">
+        Impressora{nome ? ': ' : ''}
+        {nome && <em className="impressora-nome">{nome}</em>}
+      </span>
+      {onRenomear && nome && (
+        <button
+          type="button"
+          className="btn btn-ghost impressora-lapis"
+          title="Trocar o nome"
+          aria-label="Trocar o nome da impressora"
+          onClick={() => {
+            setTexto(nome)
+            setEditando(true)
+          }}
+        >
+          ✎
+        </button>
+      )}
     </div>
   )
 }

@@ -24,10 +24,11 @@ import { LogsStore } from '@lib/logs/logsStore'
 import { TelemetryBuffer } from '@lib/telemetry/buffer'
 import { sanitize } from '@lib/telemetry/sanitize'
 import { detectPrintMode } from '@lib/printer'
-import type { AgentStatus, AgentSnapshot, Preferences, PrinterConfig } from '@shared/types'
+import { configDaImpressora, type AgentStatus, type AgentSnapshot, type ImpressoraExtra, type Preferences, type PrinterConfig } from '@shared/types'
 import { formatLogTime } from '@shared/logTime'
 import { AgentState, makeInitialSnapshot } from './agentState'
 import { imprimirPeloDriver } from './imprimirPeloDriver'
+import { modosDasExtras, sincronizarImpressoras } from './impressorasDoAparelho'
 import { StoreConnection } from './storeConnection'
 import { Mutex } from 'async-mutex'
 import { registerIpc } from './ipc'
@@ -209,14 +210,16 @@ if (!gotLock) {
     })
 
     const initial = state.get()
-    const [persistedPrinter, persistedPrefs] = await Promise.all([
+    const [persistedPrinter, persistedPrefs, persistedExtras] = await Promise.all([
       readJsonFile<PrinterConfig>('printer', initial.printer),
-      readJsonFile<Preferences>('preferences', initial.preferences)
+      readJsonFile<Preferences>('preferences', initial.preferences),
+      readJsonFile<ImpressoraExtra[]>('impressoras-extras', [])
     ])
     // Arquivo gravado por versão anterior não tem as chaves novas — o spread
     // sobre o default garante boolean em vez de undefined (Switch controlado).
     state.patch({
       printer: persistedPrinter,
+      extras: Array.isArray(persistedExtras) ? persistedExtras.filter((e) => e && typeof e.chave === 'string' && e.config) : [],
       preferences: { ...initial.preferences, ...persistedPrefs }
     })
     // Sincroniza a preferência de auto-start com o registro do Windows
@@ -255,7 +258,8 @@ if (!gotLock) {
         state,
         device,
         appVersion: app.getVersion(),
-        getPrinterConfig: () => state.get().printer,
+        getPrinterConfig: (chave) => configDaImpressora(state.get(), chave),
+        getModosDasExtras: () => modosDasExtras(state),
         withPrinter: (fn) => printerMutex.runExclusive(fn),
         imprimirPeloDriver,
         adoptsLegacyRows: connections.size === 0
@@ -280,6 +284,7 @@ if (!gotLock) {
       })
       await upsertAccount({ storeId, storeName, refreshToken })
       await conn.start()
+      void sincronizarImpressoras(state, connections)
       return { storeId, storeName }
     }
 
@@ -360,7 +365,8 @@ if (!gotLock) {
         connections,
         connectStore,
         disconnectStore,
-        withPrinter: (fn) => printerMutex.runExclusive(fn)
+        withPrinter: (fn) => printerMutex.runExclusive(fn),
+        sincronizarImpressoras: () => sincronizarImpressoras(state, connections)
       },
       () => mainWindow
     )
