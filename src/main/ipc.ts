@@ -59,9 +59,9 @@ function buildErrorHint(printerType: PrinterType, code: string): string {
   if (printerType === 'windows_spooler') {
     if (code === 'DRIVER_MISSING' || code === 'IO_ERROR' || code === 'TIMEOUT' || code === 'OFFLINE') {
       return (
-        'Abra Painel de Controle > Dispositivos e Impressoras > clique direito na ' +
-        'impressora > Propriedades > aba Portas, e confirme que a porta está em USB001 ' +
-        '(ou similar) — não em LPT1.'
+        'Confira se a impressora está ligada. Em Configurações > Impressoras e scanners > a impressora > ' +
+        'Propriedades da impressora > Portas, a porta tem que ser a dela: USB00x no cabo USB, COMx no Bluetooth ' +
+        '(nunca LPT1). Se pareou o Bluetooth de novo, use «Usar esta» outra vez.'
       )
     }
     if (code === 'ACCESS_DENIED') {

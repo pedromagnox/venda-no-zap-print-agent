@@ -387,6 +387,29 @@ export async function listarSemFila(): Promise<ImpressoraSemFila[]> {
 }
 
 
+/** Porta da fila do Windows com esse nome (null = não existe). Pareada de novo, a Bluetooth muda de COM e o nome
+ *  sugerido é o mesmo: a fila velha aponta para a COM antiga (PC do Pedro, 11/11: COM12 → COM11, «impressora excluída»). */
+async function portaDaFila(nome: string): Promise<string | null> {
+  if (process.platform !== 'win32') return null
+  const chaves = await regQuery(`${KEY_PRINTERS}\\${nome}`, ['/v', 'Port'], false)
+  const valor = chaves.flatMap((k) => k.values).find((v) => v.name.toLowerCase() === 'port')
+  if (valor) return valor.data
+  return (await filaExiste(nome)) ? '' : null
+}
+
+export function mesmaPorta(daFila: string, port: string): boolean {
+  const limpa = (p: string): string => p.trim().toUpperCase().replace(/:$/, '')
+  return limpa(daFila) === limpa(port)
+}
+
+async function nomeLivre(base: string): Promise<string> {
+  for (let n = 2; n <= 9; n++) {
+    const nome = `${base.slice(0, 55)} (${n})`
+    if ((await portaDaFila(nome)) === null) return nome
+  }
+  return `${base.slice(0, 50)} ${Date.now() % 100000}`
+}
+
 async function filaExiste(nome: string): Promise<boolean> {
   if (process.platform !== 'win32') return false
   try {
@@ -436,7 +459,11 @@ export async function criarFilaGenerica(
   if (!/^[A-Za-z0-9 _().-]{1,60}$/.test(queueName)) {
     return { ok: false, error: `Nome de impressora inválido: ${queueName}` }
   }
-  if (await filaExiste(queueName)) return { ok: true, queueName, elevated: false }
+  const existente = await portaDaFila(queueName)
+  if (existente !== null) {
+    if (mesmaPorta(existente, port)) return { ok: true, queueName, elevated: false }
+    queueName = await nomeLivre(queueName)
+  }
 
   const args = printuiArgs(queueName, port)
   try {

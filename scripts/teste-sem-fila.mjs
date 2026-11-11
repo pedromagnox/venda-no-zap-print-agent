@@ -366,3 +366,11 @@ test('COM: nome com aspa simples não quebra o script do PowerShell', () => {
   assert.match(script, /"Termica D''Ajuda"/)
 })
 
+
+test('Fila com o mesmo nome em outra porta não serve (Bluetooth pareada de novo: COM12 → COM11)', async () => {
+  const { mesmaPorta } = await import('../src/lib/printer/semFila.ts')
+  assert.equal(mesmaPorta('COM12:', 'COM12'), true)
+  assert.equal(mesmaPorta('com12:', 'COM12'), true)
+  assert.equal(mesmaPorta('COM12:', 'COM11'), false)
+  assert.equal(mesmaPorta('USB001', 'usb001'), true)
+})
