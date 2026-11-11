@@ -150,6 +150,7 @@ Uma instalação atende **N lojas** — o caso do lojista com duas lojas e uma i
   - fone e headset também têm COM de saída (SPP). O filtro é o COD de `BTHPORT\…\Devices\<mac>`: classe principal 0x04 (áudio), entre outras, sai; 0x06 (imaging) e COD genérico ficam;
   - o `reg.exe` sai no code page OEM (cp850): o texto traduzido e os acentos chegam tortos; as chaves, o hex e COMxx são ASCII. Exit 1 quando a chave não existe ou o /v não acha nada.
 - ⚠️ O `printui` com `ntprint.inf` e a criação da fila com UAC ainda só se provam num Windows de verdade.
+- **COM que o spooler não conhece (1.13.2, T-0159):** Bluetooth pareada depois que o Windows ligou, ou numa COM alta (KA-1445 na COM12, no PC do Pedro), e o printui não cria a fila: «O Windows não criou a impressora» mesmo com o «Sim». Para COM, a parte com permissão é um PowerShell que registra a porta (`Get-PrinterPort`/`Add-PrinterPort`, exit 11 se não der) e só então roda o printui. USB segue igual.
 - O assistente de modo ganhou «Agora não — ver a tela principal» (`onSkip`). Até a 1.11.4 ele era uma trava: sem modo salvo, a tela principal só abria depois de salvar um, e o teste depende do servidor. App sem conexão ficava preso no «Não saiu nada?» sem ver o status (Magrello Burger, #828). Os pedidos saem mesmo assim no modo derivado; o assistente volta na próxima abertura.
 
 ## Microsoft Store (MSIX)

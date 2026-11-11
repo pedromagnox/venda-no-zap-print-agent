@@ -18,7 +18,10 @@ import {
   parseUsbprintPresentes,
   decodeRegBinaryName,
   comandoElevado,
-  printuiArgs
+  printuiArgs,
+  scriptDaFilaNaCom,
+  comandoElevadoComScript,
+  PORTA_NAO_REGISTRADA
 } from '../src/lib/printer/semFila.ts'
 
 const crlf = (s) => s.replace(/\n/g, '\r\n')
@@ -339,3 +342,26 @@ Fim da pesquisa: 2 correspondência(s) encontrada(s).
   })
   assert.deepEqual(lista.map((i) => [i.port, i.label]), [['COM3', 'KPrinter_ab28']])
 })
+
+test('COM: registra a porta no spooler antes do printui, na mesma permissão (KA-1445 na COM12, T-0159)', () => {
+  const script = scriptDaFilaNaCom('Termica KA-1445', 'com12')
+  assert.match(script, /^\$porta = 'COM12:'$/m)
+  assert.match(script, /Get-PrinterPort -Name \$porta/)
+  assert.match(script, /Add-PrinterPort -Name \$porta -ErrorAction Stop/)
+  assert.match(script, new RegExp(`exit ${PORTA_NAO_REGISTRADA}`))
+  assert.ok(script.indexOf('Add-PrinterPort') < script.indexOf('rundll32'))
+  assert.match(script, /"Termica KA-1445"/)
+  assert.match(script, / \/r COM12: /)
+  assert.match(script, /-Wait/)
+  const cmd = comandoElevadoComScript(script)
+  assert.match(cmd, /-Verb RunAs -Wait -PassThru/)
+  assert.match(cmd, /exit \$p\.ExitCode$/)
+  const b64 = /-EncodedCommand ([A-Za-z0-9+/=]+)'/.exec(cmd)[1]
+  assert.equal(Buffer.from(b64, 'base64').toString('utf16le'), script)
+})
+
+test('COM: nome com aspa simples não quebra o script do PowerShell', () => {
+  const script = scriptDaFilaNaCom("Termica D'Ajuda", 'COM4')
+  assert.match(script, /"Termica D''Ajuda"/)
+})
+
