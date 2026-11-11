@@ -26,6 +26,8 @@ export type QueueLoopDeps = {
   /** v1.11.0: serializa o acesso à impressora entre as lojas — ela é UMA só,
    *  e dois cupons entrelaçados sairiam embaralhados no papel. */
   withPrinter?: <T>(fn: () => Promise<T>) => Promise<T>
+  /** Modo «pelo driver do Windows»: o cupom em imagem vira página e vai pelo driver da impressora. */
+  imprimirPeloDriver?: (bytes: Uint8Array, fila: string) => Promise<void>
   intervalMs: number
   maxBackoffMs?: number
 }
@@ -379,7 +381,13 @@ export class QueueLoop {
     if (this.lastLoggedMode === mode) return
     this.lastLoggedMode = mode
     const label =
-      mode === 'raster' ? 'Imagem (raster)' : mode === 'ascii' ? 'Simples (ASCII)' : 'Texto (ESC/POS)'
+      mode === 'driver'
+        ? 'Pelo driver do Windows'
+        : mode === 'raster'
+          ? 'Imagem (raster)'
+          : mode === 'ascii'
+            ? 'Simples (ASCII)'
+            : 'Texto (ESC/POS)'
     this.deps.state.pushLog({
       time: nowLogTime(),
       level: 'info',
@@ -445,10 +453,11 @@ export class QueueLoop {
     const { id, orderNumber } = row
     const printerConfig = this.deps.getPrinterConfig()
     const reasonField = reason ? { reason } : {}
+    const modo = mode ?? row.printMode ?? undefined
     this.deps.telemetry.emit({
       type: 'print_attempt',
       queueId: id,
-      printMode: mode,
+      printMode: modo,
       ...reasonField,
       ...this.printerContext(printerConfig)
     })
@@ -458,6 +467,14 @@ export class QueueLoop {
       const data = Buffer.from(row.bytesB64, 'base64')
       const run = this.deps.withPrinter ?? (<T>(fn: () => Promise<T>): Promise<T> => fn())
       await run(async () => {
+        if (modo === 'driver') {
+          const fila = printerConfig.type === 'windows_spooler' ? printerConfig.spoolerName : undefined
+          if (!fila || !this.deps.imprimirPeloDriver) {
+            throw new PrinterError('INVALID_CONFIG', 'o modo pelo driver do Windows precisa de uma impressora instalada no Windows')
+          }
+          await this.deps.imprimirPeloDriver(data, fila)
+          return
+        }
         const printer = makePrinter(printerConfig)
         try {
           await printer.print(data, `Pedido #${orderNumber} - Venda no Zap`)
@@ -493,7 +510,7 @@ export class QueueLoop {
         type: 'print_success',
         queueId: id,
         durationMs,
-        printMode: mode,
+        printMode: modo,
         ...reasonField,
         ...this.printerContext(printerConfig)
       })
@@ -534,7 +551,7 @@ export class QueueLoop {
         durationMs: Date.now() - startedAt,
         errorCode: code,
         errorMessage,
-        printMode: mode,
+        printMode: modo,
         ...reasonField,
         ...this.printerContext(printerConfig)
       })

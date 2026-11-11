@@ -67,7 +67,7 @@ export class PrintAgentEndpoints {
    * extractItemsArray).
    */
   async claimLease(max: number, mode: PrintModeSelection): Promise<ClaimLeaseResponse> {
-    const raw = await this.api.postJson<unknown>('/api/print-queue/claim-lease', { max, mode })
+    const raw = await this.api.postJson<unknown>('/api/print-queue/claim-lease', { max, mode: modoNoServidor(mode) })
     return { items: extractItemsArray(raw).map(normalizeLeaseItem) }
   }
 
@@ -79,7 +79,7 @@ export class PrintAgentEndpoints {
    * agente só repassa RAW. Usado pelo wizard de modo de impressão.
    */
   async testReceipt(mode: PrintModeSelection, paperWidth?: 58 | 80): Promise<TestReceiptResult> {
-    const body: Record<string, unknown> = { mode }
+    const body: Record<string, unknown> = { mode: modoNoServidor(mode) }
     if (paperWidth) body.paperWidth = paperWidth
     const raw = await this.api.postJson<Record<string, unknown>>(
       '/api/print-queue/test-receipt',
@@ -185,4 +185,9 @@ function strOr(v: unknown, fallback: string): string {
   if (typeof v === 'string' && v.length > 0) return v
   if (typeof v === 'number' && Number.isFinite(v)) return String(v)
   return fallback
+}
+
+/** O modo «pelo driver do Windows» pede o cupom em imagem: o app desenha a página e o driver da impressora traduz. */
+function modoNoServidor(mode: PrintModeSelection): Exclude<PrintModeSelection, 'driver'> {
+  return mode === 'driver' ? 'raster' : mode
 }

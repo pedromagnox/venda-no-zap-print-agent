@@ -230,6 +230,7 @@ export function App(): JSX.Element {
         </div>
         <PrintModeWizard
           onPrintTest={(mode) => window.printAgent.printTestReceipt(mode)}
+          podeUsarDriver={snap.printer.type === 'windows_spooler'}
           onSelectMode={(mode) => handleSetPrinter({ ...snap.printer, printMode: mode })}
           onDone={() => {
             setForceWizard(false)
