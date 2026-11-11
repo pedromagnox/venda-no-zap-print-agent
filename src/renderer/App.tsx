@@ -9,7 +9,7 @@ import { LogsSection } from './components/sections/LogsSection'
 import { ConnectionSection } from './components/sections/ConnectionSection'
 import { PreferencesSection } from './components/sections/PreferencesSection'
 import { AvisosDoWindows } from './components/AvisosDoWindows'
-import type { AgentSnapshot, PrinterConfig } from '@shared/types'
+import { CHAVE_PRINCIPAL, configDaImpressora, nomeDeFabrica, type AgentSnapshot, type PrinterConfig } from '@shared/types'
 import { isPrinterConfigured } from './lib/printerConfig'
 
 const SUPPORT_WHATSAPP_NUMBER = '5511921048695'
@@ -76,6 +76,8 @@ export function App(): JSX.Element {
   const [forceWizard, setForceWizard] = useState(false)
   const [wizardClosed, setWizardClosed] = useState(false)
   const [reselecting, setReselecting] = useState(false)
+  const [chaveSelecionada, setChaveSelecionada] = useState<string>(CHAVE_PRINCIPAL)
+  const [chaveDoWizard, setChaveDoWizard] = useState<string>(CHAVE_PRINCIPAL)
   useEffect(() => {
     if (!snap?.connection.connected) {
       setPrinterOnboardingDone(false)
@@ -132,23 +134,38 @@ export function App(): JSX.Element {
     }
   }
 
-  const handleSetPrinter = async (next: PrinterConfig) => {
+  const extraExiste = snap.extras.some((e) => e.chave === chaveSelecionada)
+  const chaveAtual = extraExiste ? chaveSelecionada : CHAVE_PRINCIPAL
+  const configAtual = configDaImpressora(snap, chaveAtual)
+  const impressoras = [{ chave: CHAVE_PRINCIPAL }, ...snap.extras].map((i, posicao) => ({
+    chave: i.chave,
+    nome: snap.nomesDasImpressoras[i.chave] ?? nomeDeFabrica(posicao)
+  }))
+  const nomeAtual = impressoras.find((i) => i.chave === chaveAtual)?.nome
+
+  const handleSetPrinter = async (next: PrinterConfig, chave: string = chaveAtual) => {
     // Trocar o ALVO da impressora invalida o modo testado → limpa o printMode e
     // reabre o wizard. Mudar só a largura preserva o modo.
+    const antes = configDaImpressora(snap, chave)
     const targetChanged =
-      next.type !== snap.printer.type ||
-      (next.spoolerName ?? '') !== (snap.printer.spoolerName ?? '') ||
-      (next.host ?? '') !== (snap.printer.host ?? '')
+      next.type !== antes.type ||
+      (next.spoolerName ?? '') !== (antes.spoolerName ?? '') ||
+      (next.host ?? '') !== (antes.host ?? '')
     const toSave: PrinterConfig = targetChanged ? { ...next, printMode: undefined } : next
-    if (targetChanged) setWizardClosed(false)
-    const r = await window.printAgent.setPrinter(toSave)
+    if (targetChanged && chave === CHAVE_PRINCIPAL) setWizardClosed(false)
+    const r = await window.printAgent.setPrinter(toSave, chave)
     if (!r.ok) alert(`Não foi possível salvar a configuração: ${r.error}`)
+    if (targetChanged && chave !== CHAVE_PRINCIPAL && isPrinterConfigured(toSave)) {
+      setChaveDoWizard(chave)
+      setWizardClosed(false)
+      setForceWizard(true)
+    }
   }
   const handleTestPrint = async () => {
     if (isTesting) return
     setIsTesting(true)
     try {
-      const result = await window.printAgent.testPrint()
+      const result = await window.printAgent.testPrint(chaveAtual)
       if (!result.ok) {
         const lines = [`Erro ao testar impressão: ${result.error}`]
         if (result.hint) lines.push('', result.hint)
@@ -204,7 +221,7 @@ export function App(): JSX.Element {
           testing={isTesting}
           printMode={snap.printMode}
           printerDriver={snap.printerDriver}
-          onChange={handleSetPrinter}
+          onChange={(next) => handleSetPrinter(next, CHAVE_PRINCIPAL)}
           onTestPrint={handleTestPrint}
           onContinue={() => {
             setReselecting(false)
@@ -218,8 +235,10 @@ export function App(): JSX.Element {
   // Wizard de teste guiado de modo de impressão. Aparece quando há impressora
   // mas ainda sem modo escolhido (ou no re-teste manual). Concluir grava o
   // printMode na config → o gate fecha sozinho.
+  const chaveWizard = forceWizard ? chaveDoWizard : CHAVE_PRINCIPAL
+  const configWizard = configDaImpressora(snap, chaveWizard)
   const showWizard =
-    !wizardClosed && isPrinterConfigured(snap.printer) && (!snap.printer.printMode || forceWizard)
+    !wizardClosed && isPrinterConfigured(configWizard) && (!configWizard.printMode || forceWizard)
   if (showWizard) {
     return (
       <div className="app">
@@ -230,9 +249,9 @@ export function App(): JSX.Element {
           Venda no Zap Print Agent
         </div>
         <PrintModeWizard
-          onPrintTest={(mode) => window.printAgent.printTestReceipt(mode)}
-          podeUsarDriver={snap.printer.type === 'windows_spooler'}
-          onSelectMode={(mode) => handleSetPrinter({ ...snap.printer, printMode: mode })}
+          onPrintTest={(mode) => window.printAgent.printTestReceipt(mode, chaveWizard)}
+          podeUsarDriver={configWizard.type === 'windows_spooler'}
+          onSelectMode={(mode) => handleSetPrinter({ ...configWizard, printMode: mode }, chaveWizard)}
           onDone={() => {
             setForceWizard(false)
             setWizardClosed(true)
@@ -295,16 +314,43 @@ export function App(): JSX.Element {
         />
 
         <PrinterSection
-          config={snap.printer}
+          config={configAtual}
           testing={isTesting}
-          printMode={snap.printMode}
-          printerDriver={snap.printerDriver}
-          onChange={handleSetPrinter}
+          printMode={chaveAtual === CHAVE_PRINCIPAL ? snap.printMode : undefined}
+          printerDriver={chaveAtual === CHAVE_PRINCIPAL ? snap.printerDriver : null}
+          onChange={(next) => handleSetPrinter(next, chaveAtual)}
           onTestPrint={handleTestPrint}
           onRetestMode={() => {
+            setChaveDoWizard(chaveAtual)
             setWizardClosed(false)
             setForceWizard(true)
           }}
+          nome={nomeAtual}
+          impressoras={impressoras}
+          chaveSelecionada={chaveAtual}
+          onSelecionar={setChaveSelecionada}
+          onRenomear={async (nome) => {
+            const r = await window.printAgent.renomearImpressora(chaveAtual, nome)
+            return r.ok ? null : (r.error ?? 'Não deu para trocar o nome.')
+          }}
+          onAdicionar={async () => {
+            const r = await window.printAgent.adicionarImpressora()
+            if (!r.ok || !r.chave) {
+              alert(r.error ?? 'Não deu para adicionar a impressora.')
+              return
+            }
+            setChaveSelecionada(r.chave)
+          }}
+          onRemover={
+            chaveAtual === CHAVE_PRINCIPAL
+              ? undefined
+              : async () => {
+                  if (!confirm(`Remover a impressora «${nomeAtual ?? ''}» deste computador?`)) return
+                  const r = await window.printAgent.removerImpressora(chaveAtual)
+                  if (!r.ok) alert(r.error ?? 'Não deu para remover a impressora.')
+                  else setChaveSelecionada(CHAVE_PRINCIPAL)
+                }
+          }
         />
 
         <HistorySection entries={snap.history} />

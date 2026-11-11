@@ -3,6 +3,7 @@ import type {
   ClaimLeaseResponse,
   ClaimOpts,
   ClaimResponse,
+  ImpressorasDoAparelho,
   LeaseItem,
   PingRequest,
   PrintModeSelection,
@@ -66,8 +67,15 @@ export class PrintAgentEndpoints {
    * antigo), que não queremos. Tolerante ao envelope `{items}` (reusa
    * extractItemsArray).
    */
-  async claimLease(max: number, mode: PrintModeSelection): Promise<ClaimLeaseResponse> {
-    const raw = await this.api.postJson<unknown>('/api/print-queue/claim-lease', { max, mode: modoNoServidor(mode) })
+  async claimLease(
+    max: number,
+    mode: PrintModeSelection,
+    modos: Record<string, PrintModeSelection> = {}
+  ): Promise<ClaimLeaseResponse> {
+    const body: Record<string, unknown> = { max, mode: modoNoServidor(mode) }
+    const chaves = Object.keys(modos)
+    if (chaves.length) body.modos = Object.fromEntries(chaves.map((c) => [c, modoNoServidor(modos[c]!)]))
+    const raw = await this.api.postJson<unknown>('/api/print-queue/claim-lease', body)
     return { items: extractItemsArray(raw).map(normalizeLeaseItem) }
   }
 
@@ -91,6 +99,19 @@ export class PrintAgentEndpoints {
       paperWidthMm: raw.paperWidthMm as TestReceiptResult['paperWidthMm'],
       bytesB64: strOr(raw.bytesBase64, '')
     }
+  }
+
+  /** v1.14.0: as impressoras deste computador na loja; ela devolve os nomes (Balcão, Bar, 03…). */
+  registrarImpressoras(lista: Array<{ chave: string; descricao?: string | null }>): Promise<ImpressorasDoAparelho> {
+    return this.api.enviarJson('PUT', '/api/print-agent/impressoras', { impressoras: lista })
+  }
+
+  renomearImpressora(chave: string, nome: string): Promise<{ id: string; nome: string }> {
+    return this.api.enviarJson('PATCH', `/api/print-agent/impressoras/${encodeURIComponent(chave)}`, { nome })
+  }
+
+  removerImpressora(chave: string): Promise<{ ok: boolean }> {
+    return this.api.enviarJson('DELETE', `/api/print-agent/impressoras/${encodeURIComponent(chave)}`)
   }
 
   ack(id: string): Promise<void> {
@@ -145,10 +166,13 @@ function normalizeLeaseItem(it: unknown): LeaseItem {
   // `orderNumber`, ele tem precedência.
   const orderNumber = strOr(o.orderNumber, strOr(o.orderId, id))
   const reason = typeof o.reason === 'string' ? o.reason : undefined
+  const impressora = o.impressora && typeof o.impressora === 'object' ? (o.impressora as Record<string, unknown>) : null
+  const impressoraChave = impressora && typeof impressora.chave === 'string' ? impressora.chave : undefined
   return {
     id,
     orderNumber,
     ...(reason ? { reason } : {}),
+    ...(impressoraChave ? { impressoraChave } : {}),
     bytesB64: strOr(o.bytesBase64, ''),
     paperWidth: o.paperWidth as LeaseItem['paperWidth'],
     paperWidthMm: o.paperWidthMm as LeaseItem['paperWidthMm']

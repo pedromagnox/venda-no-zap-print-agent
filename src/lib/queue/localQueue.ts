@@ -21,6 +21,8 @@ export type ClaimedRow = {
   /** Modo (escpos/ascii/raster) com que o item foi claimado. Usado pra carimbar
    *  a telemetria no recoverLocal após crash/reboot. */
   printMode: PrintModeSelection | null
+  /** v1.14.0: impressora deste computador a que o servidor mandou o pedido (null = a principal). */
+  impressoraChave?: string | null
   paperWidth: PaperWidth
   copies: number
   claimedAt: number
@@ -35,6 +37,7 @@ type RawRow = {
   bytesB64: string
   text: string | null
   printMode: string | null
+  impressoraChave: string | null
   paperWidth: number
   copies: number
   claimedAt: number
@@ -62,16 +65,16 @@ export class LocalQueue {
   ) {
     this.stmtInsert = db.prepare(`
       INSERT OR REPLACE INTO claimed_items
-        (id, order_number, bytes_b64, text_data, print_mode, paper_width, copies, claimed_at, lease_expires_at, attempts, last_error, store_id)
+        (id, order_number, bytes_b64, text_data, print_mode, paper_width, copies, claimed_at, lease_expires_at, attempts, last_error, store_id, impressora_chave)
       VALUES
-        (@id, @orderNumber, @bytesB64, @text, @printMode, @paperWidth, @copies, @claimedAt, @leaseExpiresAt, 0, NULL, @storeId)
+        (@id, @orderNumber, @bytesB64, @text, @printMode, @paperWidth, @copies, @claimedAt, @leaseExpiresAt, 0, NULL, @storeId, @impressoraChave)
     `)
     this.stmtDelete = db.prepare(`DELETE FROM claimed_items WHERE id = ?`)
     this.stmtHas = db.prepare(`SELECT 1 FROM claimed_items WHERE id = ?`)
     this.stmtList = db.prepare(`
       SELECT
         id, order_number AS orderNumber, bytes_b64 AS bytesB64,
-        text_data AS text, print_mode AS printMode,
+        text_data AS text, print_mode AS printMode, impressora_chave AS impressoraChave,
         paper_width AS paperWidth, copies, claimed_at AS claimedAt,
         lease_expires_at AS leaseExpiresAt, attempts, last_error AS lastError
       FROM claimed_items
@@ -100,7 +103,8 @@ export class LocalQueue {
       copies: row.copies,
       claimedAt: row.claimedAt,
       leaseExpiresAt: row.leaseExpiresAt,
-      storeId: this.lojaAtual()
+      storeId: this.lojaAtual(),
+      impressoraChave: row.impressoraChave ?? null
     })
   }
 

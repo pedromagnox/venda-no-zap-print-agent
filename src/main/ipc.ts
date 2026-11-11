@@ -19,15 +19,18 @@ import { applyAutoStart } from './autoStart'
 import { abrirConfiguracaoDoWindows, aplicarInicioAutomatico } from './windowsStore'
 import type { StoreConnection } from './storeConnection'
 import { randomUUID } from 'node:crypto'
-import type {
-  AgentSnapshot,
-  ImpressoraSemFila,
-  InstalarImpressoraResult,
-  PrinterConfig,
-  Preferences,
-  PrinterType,
-  PrintModeSelection,
-  PaginaDoWindows
+import {
+  CHAVE_PRINCIPAL,
+  configDaImpressora,
+  type AgentSnapshot,
+  type ImpressoraExtra,
+  type ImpressoraSemFila,
+  type InstalarImpressoraResult,
+  type PrinterConfig,
+  type Preferences,
+  type PrinterType,
+  type PrintModeSelection,
+  type PaginaDoWindows
 } from '@shared/types'
 
 export type IpcDeps = {
@@ -40,6 +43,8 @@ export type IpcDeps = {
   disconnectStore: (storeId: string) => Promise<void>
   /** A impressora é uma só: teste também passa pelo mutex das lojas. */
   withPrinter: <T>(fn: () => Promise<T>) => Promise<T>
+  /** v1.14.0: manda à loja as impressoras deste computador e guarda os nomes. */
+  sincronizarImpressoras: () => Promise<void>
 }
 
 export type ConnectResult =
@@ -125,8 +130,20 @@ function printerContext(config: PrinterConfig): {
 }
 
 export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null): void {
-  const { state, device, appVersion, connections, connectStore, disconnectStore, withPrinter } =
+  const { state, device, appVersion, connections, connectStore, disconnectStore, withPrinter, sincronizarImpressoras } =
     deps
+  let sincronizarTimer: NodeJS.Timeout | null = null
+  const sincronizarDaquiAPouco = (): void => {
+    if (sincronizarTimer) clearTimeout(sincronizarTimer)
+    sincronizarTimer = setTimeout(() => {
+      sincronizarTimer = null
+      void sincronizarImpressoras()
+    }, 3_000)
+  }
+  const salvarExtras = (extras: ImpressoraExtra[]): Promise<void> => {
+    state.setExtras(extras)
+    return writeJsonFile('impressoras-extras', extras)
+  }
   // Teste de impressão e cupom-amostra são da MÁQUINA, não de uma loja — mas
   // o cupom-amostra vem do servidor, então usamos a primeira loja conectada.
   const anyConnection = (): StoreConnection | null => connections.values().next().value ?? null
@@ -194,7 +211,24 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
 
   ipcMain.handle(
     'agent:setPrinter',
-    async (_e, printer: PrinterConfig): Promise<{ ok: boolean; error?: string }> => {
+    async (_e, printer: PrinterConfig, chave?: string): Promise<{ ok: boolean; error?: string }> => {
+      if (chave && chave !== CHAVE_PRINCIPAL) {
+        const extras = state.get().extras
+        if (!extras.some((e) => e.chave === chave)) return { ok: false, error: 'Essa impressora não existe mais neste computador.' }
+        try {
+          await salvarExtras(extras.map((e) => (e.chave === chave ? { ...e, config: printer } : e)))
+        } catch (err) {
+          return { ok: false, error: err instanceof Error ? err.message : String(err) }
+        }
+        if (kickTimer) clearTimeout(kickTimer)
+        kickTimer = setTimeout(() => {
+          kickTimer = null
+          for (const conn of connections.values()) conn.kick()
+        }, 3_000)
+        sincronizarDaquiAPouco()
+        return { ok: true }
+      }
+      sincronizarDaquiAPouco()
       state.setPrinter(printer)
       // Re-detecta o driver da nova impressora pra ativar/desativar modo
       // compatibilidade. Async — UI já vai ter renderizado o printer novo, a
@@ -253,8 +287,8 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
     }
   )
 
-  ipcMain.handle('agent:testPrint', async (): Promise<TestPrintResult> => {
-    const config = state.get().printer
+  ipcMain.handle('agent:testPrint', async (_e, chave?: string): Promise<TestPrintResult> => {
+    const config = configDaImpressora(state.get(), chave)
     const startedAt = Date.now()
     anyConnection()?.telemetry.emit({ type: 'print_attempt', ...printerContext(config) })
     // Re-detecta o modo na hora do teste — garante que a flag refletida no
@@ -331,8 +365,8 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
   // local) — aqui o raster só o servidor desenha, e exercita o caminho real.
   ipcMain.handle(
     'agent:printTestReceipt',
-    async (_e, mode: PrintModeSelection): Promise<TestPrintResult> => {
-      const config = state.get().printer
+    async (_e, mode: PrintModeSelection, chave?: string): Promise<TestPrintResult> => {
+      const config = configDaImpressora(state.get(), chave)
       const startedAt = Date.now()
       try {
         const conn = anyConnection()
@@ -425,6 +459,79 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
     }
   )
 
+  ipcMain.handle('agent:adicionarImpressora', async (): Promise<{ ok: boolean; chave?: string; error?: string }> => {
+    const snap = state.get()
+    if (snap.extras.length >= 9) return { ok: false, error: 'Este computador já tem 10 impressoras.' }
+    const chave = `imp-${randomUUID().slice(0, 8)}`
+    try {
+      await salvarExtras([
+        ...snap.extras,
+        { chave, config: { type: 'windows_spooler', spoolerName: '', paperWidth: snap.printer.paperWidth } }
+      ])
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+    state.pushLog({ time: nowLogTime(), level: 'info', message: 'Impressora nova adicionada: escolha qual é e faça o teste.' })
+    return { ok: true, chave }
+  })
+
+  ipcMain.handle('agent:removerImpressora', async (_e, chave: string): Promise<{ ok: boolean; error?: string }> => {
+    if (!chave || chave === CHAVE_PRINCIPAL) return { ok: false, error: 'A primeira impressora não se remove: troque qual é, se precisar.' }
+    const extras = state.get().extras
+    if (!extras.some((e) => e.chave === chave)) return { ok: true }
+    for (const conn of connections.values()) {
+      try {
+        await conn.endpoints.removerImpressora(chave)
+      } catch (err) {
+        state.pushLog({
+          time: nowLogTime(),
+          level: 'warn',
+          message: `Não deu para tirar a impressora da loja: ${err instanceof Error ? err.message : String(err)}`
+        })
+      }
+    }
+    try {
+      await salvarExtras(extras.filter((e) => e.chave !== chave))
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+    const { [chave]: _removida, ...nomes } = state.get().nomesDasImpressoras
+    state.setNomesDasImpressoras(nomes)
+    void sincronizarImpressoras()
+    return { ok: true }
+  })
+
+  ipcMain.handle(
+    'agent:renomearImpressora',
+    async (_e, chave: string, nome: string): Promise<{ ok: boolean; nome?: string; error?: string }> => {
+      const limpo = String(nome ?? '').trim().replace(/\s+/g, ' ')
+      if (!limpo) return { ok: false, error: 'Escreva o nome da impressora.' }
+      if (limpo.length > 30) return { ok: false, error: 'O nome da impressora vai até 30 letras.' }
+      if (connections.size === 0) return { ok: false, error: 'Conecte a loja para trocar o nome.' }
+      await sincronizarImpressoras()
+      let primeiroErro: string | null = null
+      let salvo: string | null = null
+      for (const conn of connections.values()) {
+        try {
+          const r = await conn.endpoints.renomearImpressora(chave, limpo)
+          salvo = salvo ?? r.nome
+        } catch (err) {
+          const status = (err as { status?: number })?.status
+          primeiroErro =
+            primeiroErro ??
+            (status === 409
+              ? 'Já existe uma impressora com esse nome na loja.'
+              : status === 404
+                ? 'Escolha a impressora (o nome vem depois que ela imprime pela loja).'
+                : erroDaApi(err))
+        }
+      }
+      if (!salvo) return { ok: false, error: primeiroErro ?? 'Não deu para trocar o nome.' }
+      state.setNomesDasImpressoras({ ...state.get().nomesDasImpressoras, [chave]: salvo })
+      return { ok: true, nome: salvo }
+    }
+  )
+
   ipcMain.handle('agent:listSpoolerPrinters', async (): Promise<DiscoveredSpoolerPrinter[]> => {
     try {
       return await listSpoolerPrinters()
@@ -439,4 +546,17 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
     }
   })
 
+}
+
+function erroDaApi(err: unknown): string {
+  const corpo = (err as { bodyText?: unknown })?.bodyText
+  if (typeof corpo === 'string') {
+    try {
+      const msg = (JSON.parse(corpo) as { error?: unknown }).error
+      if (typeof msg === 'string' && msg) return msg
+    } catch {
+      /* corpo sem JSON */
+    }
+  }
+  return err instanceof Error ? err.message : String(err)
 }

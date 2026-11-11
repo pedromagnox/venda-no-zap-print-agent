@@ -10,7 +10,7 @@ import { TelemetryBuffer } from '@lib/telemetry/buffer'
 import { TelemetryService } from '@lib/telemetry/service'
 import { Heartbeat } from '@lib/telemetry/heartbeat'
 import { config } from '@lib/config'
-import type { PrinterConfig } from '@shared/types'
+import type { PrinterConfig, PrintModeSelection } from '@shared/types'
 import { hasPrinterTarget } from '@lib/printer'
 import { formatLogTime } from '@shared/logTime'
 import type { AgentState } from './agentState'
@@ -28,7 +28,8 @@ export type StoreConnectionDeps = {
   state: AgentState
   device: DeviceFingerprint
   appVersion: string
-  getPrinterConfig: () => PrinterConfig
+  getPrinterConfig: (chave?: string | null) => PrinterConfig
+  getModosDasExtras?: () => Record<string, PrintModeSelection>
   /** Serializa o acesso à impressora entre TODAS as lojas (uma impressora só). */
   withPrinter: <T>(fn: () => Promise<T>) => Promise<T>
   imprimirPeloDriver?: (bytes: Uint8Array, fila: string) => Promise<void>
@@ -105,6 +106,7 @@ export class StoreConnection {
       localQueue: this.localQueue,
       telemetry: this.telemetry,
       getPrinterConfig: deps.getPrinterConfig,
+      getModosDasExtras: deps.getModosDasExtras,
       withPrinter: deps.withPrinter,
       imprimirPeloDriver: deps.imprimirPeloDriver,
       intervalMs: config.pollIntervalMs
