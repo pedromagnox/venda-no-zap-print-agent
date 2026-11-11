@@ -476,9 +476,11 @@ export const PORTA_NAO_REGISTRADA = 11
 export function scriptDaFilaNaCom(nome: string, port: string): string {
   return [
     `$porta = ${aspasPs(`${port.toUpperCase()}:`)}`,
-    'try {',
-    '  if (-not (Get-PrinterPort -Name $porta -ErrorAction SilentlyContinue)) { Add-PrinterPort -Name $porta -ErrorAction Stop }',
-    `} catch { exit ${PORTA_NAO_REGISTRADA} }`,
+    'if (Get-Command Add-PrinterPort -ErrorAction SilentlyContinue) {',
+    '  try {',
+    '    if (-not (Get-PrinterPort -Name $porta -ErrorAction SilentlyContinue)) { Add-PrinterPort -Name $porta -ErrorAction Stop }',
+    `  } catch { exit ${PORTA_NAO_REGISTRADA} }`,
+    '}',
     `$null = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\\rundll32.exe') -ArgumentList ${aspasPs(linhaDeArgumentos(printuiArgs(nome, port)))} -Wait -WindowStyle Hidden`,
     'exit 0'
   ].join('\n')
