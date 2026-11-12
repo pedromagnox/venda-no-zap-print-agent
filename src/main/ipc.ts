@@ -21,6 +21,9 @@ import type { StoreConnection } from './storeConnection'
 import { randomUUID } from 'node:crypto'
 import {
   CHAVE_PRINCIPAL,
+  MAXIMO_DE_IMPRESSORAS,
+  alvoDaImpressora,
+  comCores,
   configDaImpressora,
   nomeDeFabrica,
   type AgentSnapshot,
@@ -142,8 +145,9 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
     }, 3_000)
   }
   const salvarExtras = (extras: ImpressoraExtra[]): Promise<void> => {
-    state.setExtras(extras)
-    return writeJsonFile('impressoras-extras', extras)
+    const comCor = comCores(extras)
+    state.setExtras(comCor)
+    return writeJsonFile('impressoras-extras', comCor)
   }
   // Teste de impressão e cupom-amostra são da MÁQUINA, não de uma loja — mas
   // o cupom-amostra vem do servidor, então usamos a primeira loja conectada.
@@ -466,7 +470,9 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
 
   ipcMain.handle('agent:adicionarImpressora', async (): Promise<{ ok: boolean; chave?: string; error?: string }> => {
     const snap = state.get()
-    if (snap.extras.length >= 9) return { ok: false, error: 'Este computador já tem 10 impressoras.' }
+    if (snap.extras.length >= MAXIMO_DE_IMPRESSORAS - 1) {
+      return { ok: false, error: `O máximo é de ${MAXIMO_DE_IMPRESSORAS} impressoras neste computador.` }
+    }
     const chave = `imp-${randomUUID().slice(0, 8)}`
     try {
       await salvarExtras([
@@ -576,7 +582,3 @@ function impressoraNoMesmoAlvo(snap: AgentSnapshot, config: PrinterConfig, chave
   return snap.nomesDasImpressoras[todas[posicao]!.chave] ?? nomeDeFabrica(posicao)
 }
 
-function alvoDaImpressora(config: PrinterConfig): string | null {
-  if (config.type === 'network') return config.host ? `rede:${config.host.trim()}:${config.port ?? 9100}` : null
-  return config.spoolerName ? `windows:${config.spoolerName.trim().toLowerCase()}` : null
-}

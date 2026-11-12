@@ -89,7 +89,10 @@ export type PrintMode = 'escpos' | 'compatibility'
 export const CHAVE_PRINCIPAL = 'principal'
 
 /** v1.14.0: impressora a mais neste computador (Bar, 03…). A principal continua em `printer`. */
-export type ImpressoraExtra = { chave: string; config: PrinterConfig }
+export type ImpressoraExtra = { chave: string; config: PrinterConfig; cor?: number }
+
+export const MAXIMO_DE_IMPRESSORAS = 5
+export const CORES_DAS_IMPRESSORAS = ['#F47527', '#2563EB', '#7C3AED', '#0F766E', '#DB2777'] as const
 
 export type AgentSnapshot = {
   status: AgentStatus
@@ -150,6 +153,41 @@ export type StoreConnectionInfo = {
 export function configDaImpressora(snap: Pick<AgentSnapshot, 'printer' | 'extras'>, chave?: string | null): PrinterConfig {
   if (!chave || chave === CHAVE_PRINCIPAL) return snap.printer
   return snap.extras.find((e) => e.chave === chave)?.config ?? snap.printer
+}
+
+export function comCores(extras: ImpressoraExtra[]): ImpressoraExtra[] {
+  const total = CORES_DAS_IMPRESSORAS.length
+  const usadas = new Set<number>([0])
+  const guardadas = extras.map((e) => {
+    const cor = e.cor
+    if (typeof cor === 'number' && Number.isInteger(cor) && cor > 0 && cor < total && !usadas.has(cor)) {
+      usadas.add(cor)
+      return cor
+    }
+    return null
+  })
+  return extras.map((e, i) => {
+    let cor = guardadas[i]
+    if (cor == null) {
+      cor = Array.from({ length: total - 1 }, (_, k) => k + 1).find((c) => !usadas.has(c)) ?? 1 + (i % (total - 1))
+      usadas.add(cor)
+    }
+    return e.cor === cor ? e : { ...e, cor }
+  })
+}
+
+export function corDaImpressora(extras: ImpressoraExtra[], chave: string): string {
+  const cor = chave === CHAVE_PRINCIPAL ? 0 : (extras.find((e) => e.chave === chave)?.cor ?? 0)
+  return CORES_DAS_IMPRESSORAS[cor % CORES_DAS_IMPRESSORAS.length]!
+}
+
+export function alvoDaImpressora(config: PrinterConfig): string | null {
+  if (config.type === 'network') {
+    const host = config.host?.trim()
+    return host ? `rede:${host}:${config.port ?? 9100}` : null
+  }
+  const fila = config.spoolerName?.trim()
+  return fila ? `windows:${fila.toLowerCase()}` : null
 }
 
 /** Nome de fábrica enquanto a loja não respondeu (o mesmo do servidor): Balcão, Bar, 03, 04… */
