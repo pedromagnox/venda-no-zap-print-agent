@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
-import type {
-  PaperWidth,
-  PrinterConfig,
-  PrinterType,
-  PrintMode,
-  SpoolerPrinterInfo,
-  SpoolerStatus
+import { useEffect, useState, type CSSProperties } from 'react'
+import {
+  alvoDaImpressora,
+  type PaperWidth,
+  type PrinterConfig,
+  type PrinterType,
+  type PrintMode,
+  type SpoolerPrinterInfo,
+  type SpoolerStatus
 } from '@shared/types'
 import { describeHostIssue } from '../../lib/printerConfig'
 import { ImpressorasSemFila } from '../ImpressorasSemFila'
@@ -23,12 +24,12 @@ type PrinterSectionProps = {
   onRetestMode?: () => void
   /** v1.14.0: nome desta impressora na loja (Balcão, Bar, 03…) e as outras deste computador. */
   nome?: string
-  impressoras?: Array<{ chave: string; nome: string }>
-  chaveSelecionada?: string
-  onSelecionar?: (chave: string) => void
   onRenomear?: (nome: string) => Promise<string | null>
-  onAdicionar?: () => void
   onRemover?: () => void
+  /** «Encontradas neste computador» só num cartão, para a lista não se repetir em todas as impressoras. */
+  mostrarEncontradas?: boolean
+  cor?: string
+  emUso?: Record<string, string>
 }
 
 const TYPES: { value: PrinterType; label: string; pill: 'recommended' | 'advanced' }[] = [
@@ -47,14 +48,27 @@ export function PrinterSection({
   onTestPrint,
   onRetestMode,
   nome,
-  impressoras = [],
-  chaveSelecionada,
-  onSelecionar,
   onRenomear,
-  onAdicionar,
-  onRemover
+  onRemover,
+  mostrarEncontradas = true,
+  cor,
+  emUso = {}
 }: PrinterSectionProps): JSX.Element {
   const [spoolerList, setSpoolerList] = useState<SpoolerPrinterInfo[]>([])
+  const [redeDigitada, setRedeDigitada] = useState<{ host: string; port: number; ondeEsta: string } | null>(null)
+
+  const mudarRede = (host: string, port: number): void => {
+    const next: PrinterConfig = { ...config, host, port }
+    const ondeEsta = emUso[alvoDaImpressora(next) ?? '']
+    if (ondeEsta) {
+      setRedeDigitada({ host, port, ondeEsta })
+      return
+    }
+    setRedeDigitada(null)
+    onChange(next)
+  }
+  const ondeEstaNoWindows = (fila: string): string | undefined =>
+    emUso[alvoDaImpressora({ ...config, type: 'windows_spooler', spoolerName: fila }) ?? '']
   const [spoolerLoading, setSpoolerLoading] = useState(false)
   const [semFilaCount, setSemFilaCount] = useState(0)
 
@@ -69,28 +83,16 @@ export function PrinterSection({
 
   useEffect(() => {
     if (config.type === 'windows_spooler') void loadSpooler()
+    setRedeDigitada(null)
   }, [config.type])
 
   return (
-    <section className="section">
+    <section
+      className={`section${cor ? ' impressora-cartao' : ''}`}
+      style={cor ? ({ '--brand-primary': cor } as CSSProperties) : undefined}
+    >
       <TituloDaImpressora nome={nome} onRenomear={onRenomear} />
 
-      {impressoras.length > 1 && onSelecionar && (
-        <div className="impressoras-lista" role="tablist">
-          {impressoras.map((i) => (
-            <button
-              key={i.chave}
-              type="button"
-              role="tab"
-              aria-selected={i.chave === chaveSelecionada}
-              className={`impressora-chip ${i.chave === chaveSelecionada ? 'active' : ''}`}
-              onClick={() => onSelecionar(i.chave)}
-            >
-              {i.nome}
-            </button>
-          ))}
-        </div>
-      )}
 
       <div className="field">
         <label className="label">Tipo de conexão</label>
@@ -133,20 +135,25 @@ export function PrinterSection({
             onChange={(e) => onChange({ ...config, spoolerName: e.target.value })}
           >
             <option value="">— Selecione —</option>
-            {spoolerList.map((p) => (
-              <option key={p.name} value={p.name}>
-                {formatSpoolerOption(p)}
-              </option>
-            ))}
+            {spoolerList.map((p) => {
+              const ondeEsta = p.name === config.spoolerName ? undefined : ondeEstaNoWindows(p.name)
+              return (
+                <option key={p.name} value={p.name} disabled={!!ondeEsta}>
+                  {ondeEsta ? `${formatSpoolerOption(p)}  — já está em «${ondeEsta}»` : formatSpoolerOption(p)}
+                </option>
+              )
+            })}
           </select>
-          <ImpressorasSemFila
-            onCount={setSemFilaCount}
-            onInstalled={(queueName) => {
-              void loadSpooler()
-              onChange({ ...config, spoolerName: queueName })
-            }}
-          />
-          {spoolerList.length === 0 && semFilaCount === 0 && !spoolerLoading && (
+          {mostrarEncontradas && (
+            <ImpressorasSemFila
+              onCount={setSemFilaCount}
+              onInstalled={(queueName) => {
+                void loadSpooler()
+                onChange({ ...config, spoolerName: queueName })
+              }}
+            />
+          )}
+          {mostrarEncontradas && spoolerList.length === 0 && semFilaCount === 0 && !spoolerLoading && (
             <div className="field-hint">
               Nenhuma impressora encontrada. Ligue a impressora no cabo USB ou pareie no
               Bluetooth do Windows: ela aparece aqui sozinha.
@@ -167,23 +174,28 @@ export function PrinterSection({
               <input
                 className="input"
                 placeholder="192.168.0.100"
-                value={config.host ?? ''}
-                onChange={(e) => onChange({ ...config, host: e.target.value })}
+                value={redeDigitada?.host ?? config.host ?? ''}
+                onChange={(e) => mudarRede(e.target.value, redeDigitada?.port ?? config.port ?? 9100)}
                 spellCheck={false}
               />
               <input
                 className="input"
                 placeholder="9100"
                 type="number"
-                value={config.port ?? 9100}
-                onChange={(e) => onChange({ ...config, port: Number(e.target.value) || 9100 })}
+                value={redeDigitada?.port ?? config.port ?? 9100}
+                onChange={(e) => mudarRede(redeDigitada?.host ?? config.host ?? '', Number(e.target.value) || 9100)}
               />
             </div>
             <div className="field-hint">
               Use se sua impressora térmica tem IP fixo na rede (Wi-Fi ou Ethernet).
               Porta 9100 é o padrão ESC/POS.
             </div>
-            {hostIssue && (
+            {redeDigitada && (
+              <div className="field-hint" style={{ color: 'var(--color-error)', marginTop: 6 }}>
+                Esse endereço já está em «{redeDigitada.ondeEsta}». Use outro.
+              </div>
+            )}
+            {!redeDigitada && hostIssue && (
               <div className="field-hint" style={{ color: '#b45309', marginTop: 6 }}>
                 ⚠ {hostIssue}
               </div>
@@ -225,11 +237,6 @@ export function PrinterSection({
         </button>
       )}
 
-      {onAdicionar && (
-        <button type="button" className="btn btn-block" onClick={onAdicionar}>
-          + Adicionar impressora
-        </button>
-      )}
       {onRemover && (
         <button type="button" className="btn btn-ghost btn-block btn-perigo" onClick={onRemover}>
           Remover esta impressora

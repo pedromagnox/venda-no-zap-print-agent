@@ -24,7 +24,7 @@ import { LogsStore } from '@lib/logs/logsStore'
 import { TelemetryBuffer } from '@lib/telemetry/buffer'
 import { sanitize } from '@lib/telemetry/sanitize'
 import { detectPrintMode } from '@lib/printer'
-import { configDaImpressora, type AgentStatus, type AgentSnapshot, type ImpressoraExtra, type Preferences, type PrinterConfig } from '@shared/types'
+import { comCores, configDaImpressora, type AgentStatus, type AgentSnapshot, type ImpressoraExtra, type Preferences, type PrinterConfig } from '@shared/types'
 import { formatLogTime } from '@shared/logTime'
 import { AgentState, makeInitialSnapshot } from './agentState'
 import { imprimirPeloDriver } from './imprimirPeloDriver'
@@ -73,7 +73,7 @@ function createWindow(): void {
     maximizable: false,
     fullscreenable: false,
     title: 'Venda no Zap Print Agent',
-    backgroundColor: '#FCF9F5',
+    backgroundColor: '#F1EAE2',
     titleBarStyle: 'hidden',
     titleBarOverlay: {
       color: '#F47527',
@@ -219,7 +219,9 @@ if (!gotLock) {
     // sobre o default garante boolean em vez de undefined (Switch controlado).
     state.patch({
       printer: persistedPrinter,
-      extras: Array.isArray(persistedExtras) ? persistedExtras.filter((e) => e && typeof e.chave === 'string' && e.config) : [],
+      extras: comCores(
+        Array.isArray(persistedExtras) ? persistedExtras.filter((e) => e && typeof e.chave === 'string' && e.config) : []
+      ),
       preferences: { ...initial.preferences, ...persistedPrefs }
     })
     // Sincroniza a preferência de auto-start com o registro do Windows
