@@ -219,6 +219,9 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
       if (repetida) {
         return { ok: false, error: `Essa impressora já está em «${repetida}». Escolha outra.` }
       }
+      if (printer.paperWidth !== configDaImpressora(state.get(), chave).paperWidth) {
+        printer = { ...printer, larguraEscolhida: true }
+      }
       if (chave && chave !== CHAVE_PRINCIPAL) {
         const extras = state.get().extras
         if (!extras.some((e) => e.chave === chave)) return { ok: false, error: 'Essa impressora não existe mais neste computador.' }
@@ -306,7 +309,7 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
           if (!conn || config.type !== 'windows_spooler' || !config.spoolerName) {
             throw new PrinterError('INVALID_CONFIG', 'o modo pelo driver do Windows precisa da loja conectada e de uma impressora instalada no Windows')
           }
-          const test = await conn.endpoints.testReceipt('driver', config.paperWidth)
+          const test = await conn.endpoints.testReceipt('driver', config.paperWidth, chave ?? CHAVE_PRINCIPAL)
           await imprimirPeloDriver(Buffer.from(test.bytesB64, 'base64'), config.spoolerName)
           return
         }
@@ -373,7 +376,7 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
       try {
         const conn = anyConnection()
         if (!conn) throw new Error('Nenhuma loja conectada — conecte uma loja antes de testar.')
-        const test = await conn.endpoints.testReceipt(mode, config.paperWidth)
+        const test = await conn.endpoints.testReceipt(mode, config.paperWidth, chave ?? CHAVE_PRINCIPAL)
         const bytes = Buffer.from(test.bytesB64, 'base64')
         if (mode === 'driver') {
           if (config.type !== 'windows_spooler' || !config.spoolerName) {
