@@ -397,6 +397,15 @@ async function portaDaFila(nome: string): Promise<string | null> {
   return (await filaExiste(nome)) ? '' : null
 }
 
+export async function alvoBluetoothDaFila(nome: string): Promise<string | null> {
+  if (process.platform !== 'win32' || !nome.trim()) return null
+  const porta = await portaDaFila(nome)
+  if (!porta || !/^COM\d+:?$/i.test(porta.trim())) return null
+  const saidas = parseBluetoothOutgoing(await regQuery(KEY_BTHENUM, ['/v', 'PortName']))
+  const bt = saidas.find((b) => mesmaPorta(porta, b.port))
+  return bt ? `bt:${bt.mac}` : null
+}
+
 export function mesmaPorta(daFila: string, port: string): boolean {
   const limpa = (p: string): string => p.trim().toUpperCase().replace(/:$/, '')
   return limpa(daFila) === limpa(port)

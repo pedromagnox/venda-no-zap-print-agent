@@ -28,8 +28,9 @@ export type LeaseItem = {
 }
 
 export type ImpressorasDoAparelho = {
-  impressoras: Array<{ chave: string; id: string; nome: string; principal: boolean }>
+  impressoras: Array<{ chave: string; id: string; nome: string; principal: boolean; largura?: 58 | 80 | null }>
   ativasNaLoja: number
+  larguraDaLoja?: 58 | 80
 }
 
 export type ClaimLeaseResponse = {
