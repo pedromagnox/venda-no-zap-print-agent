@@ -405,31 +405,30 @@ button {
   line-height: 1;
 }
 
-.impressoras-lista {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
+.section.impressora-cartao {
+  border-top: 4px solid var(--brand-primary);
 }
 
-.impressora-chip {
-  border: 1px solid var(--border);
-  background: var(--card);
-  border-radius: 999px;
-  padding: 4px 12px;
-  font-size: 0.8rem;
-  cursor: pointer;
-  color: var(--text);
-}
-
-.impressora-chip.active {
-  border-color: var(--brand-primary);
+.impressora-cartao .impressora-nome {
   color: var(--brand-primary);
+}
+
+.limite-impressoras {
+  text-align: center;
+}
+
+.btn.btn-adicionar {
+  border: 1.5px solid var(--brand-primary);
+  color: var(--brand-primary);
+  background: var(--card);
   font-weight: 700;
 }
 
-.btn-perigo {
+.btn.btn-perigo {
   color: var(--color-error);
+}
+.btn.btn-perigo:hover {
+  background: color-mix(in srgb, var(--color-error) 8%, transparent);
 }
 
 /* ===== Form controls ===== */
