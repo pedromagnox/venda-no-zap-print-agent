@@ -9,6 +9,8 @@
   --color-success: #43A047;
   --color-warning: #FFB300;
   --color-error: #DC2626;
+  --color-success-text: #2E7D32;
+  --color-warning-text: #B45309;
 
   /* Light theme (default) */
   --bg: #F1EAE2;

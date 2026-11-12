@@ -98,7 +98,7 @@ export function ConnectionSection({
                     nome manda, e o texto de estado só aparece quando há
                     problema — repetir "conectado" em toda linha é ruído. */}
                 {(stores.length === 1 || s.status !== 'green') && (
-                  <div className="connection-compact-label">
+                  <div className={`connection-compact-label status-${stores.length === 1 ? status : s.status}`}>
                     {stores.length === 1 ? statusLabel : s.statusMessage}
                   </div>
                 )}
