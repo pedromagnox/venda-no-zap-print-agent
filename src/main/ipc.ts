@@ -219,7 +219,7 @@ export function registerIpc(deps: IpcDeps, getWindow: () => BrowserWindow | null
     async (_e, printer: PrinterConfig, chave?: string): Promise<{ ok: boolean; error?: string }> => {
       const repetida = impressoraNoMesmoAlvo(state.get(), printer, chave ?? CHAVE_PRINCIPAL)
       if (repetida) {
-        return { ok: false, error: `Essa impressora já está em «${repetida}». Use a aba dela ou escolha outra impressora.` }
+        return { ok: false, error: `Essa impressora já está em «${repetida}». Escolha outra.` }
       }
       if (chave && chave !== CHAVE_PRINCIPAL) {
         const extras = state.get().extras
