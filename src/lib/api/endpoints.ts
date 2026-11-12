@@ -86,9 +86,10 @@ export class PrintAgentEndpoints {
    * servidor desenha, então o teste de todos os modos vem pronto em bytes — o
    * agente só repassa RAW. Usado pelo wizard de modo de impressão.
    */
-  async testReceipt(mode: PrintModeSelection, paperWidth?: 58 | 80): Promise<TestReceiptResult> {
+  async testReceipt(mode: PrintModeSelection, paperWidth?: 58 | 80, chave?: string): Promise<TestReceiptResult> {
     const body: Record<string, unknown> = { mode: modoNoServidor(mode) }
     if (paperWidth) body.paperWidth = paperWidth
+    if (chave) body.chave = chave
     const raw = await this.api.postJson<Record<string, unknown>>(
       '/api/print-queue/test-receipt',
       body
@@ -102,7 +103,9 @@ export class PrintAgentEndpoints {
   }
 
   /** v1.14.0: as impressoras deste computador na loja; ela devolve os nomes (Balcão, Bar, 03…). */
-  registrarImpressoras(lista: Array<{ chave: string; descricao?: string | null }>): Promise<ImpressorasDoAparelho> {
+  registrarImpressoras(
+    lista: Array<{ chave: string; descricao?: string | null; alvo?: string | null; largura?: 58 | 80 }>
+  ): Promise<ImpressorasDoAparelho> {
     return this.api.enviarJson('PUT', '/api/print-agent/impressoras', { impressoras: lista })
   }
 

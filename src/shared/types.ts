@@ -23,6 +23,7 @@ export type PrinterConfig = {
    *  Ausente = sem wizard ainda → o queueLoop deriva ('ascii' p/ Text-Only,
    *  senão 'escpos'). 'raster' só entra por escolha explícita do wizard. */
   printMode?: PrintModeSelection
+  larguraEscolhida?: boolean
 }
 
 export type HistoryEntry = {
